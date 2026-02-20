@@ -8,15 +8,83 @@ import {
   type PriceData,
   type MacroData,
   type Severity,
+  type Track,
+  TRACKS,
   computeRegime,
   generateBrief,
   computeThesis,
   computeSignals,
   computeMovers,
   pickChartSymbol,
+  getTrackRatioConfig,
 } from '@/lib/signals';
 
+// ============ TRACK COLOR UTILS ============
+
+function trackAccent(track: Track): {
+  textActive: string;
+  bgTab: string;
+  border: string;
+  labelText: string;
+} {
+  switch (track) {
+    case 'pm':
+      return {
+        textActive: 'text-yellow-400',
+        bgTab: 'bg-yellow-400/10',
+        border: 'border-yellow-400/30',
+        labelText: 'text-yellow-500/70',
+      };
+    case 'energy':
+      return {
+        textActive: 'text-cyan-400',
+        bgTab: 'bg-cyan-400/10',
+        border: 'border-cyan-400/30',
+        labelText: 'text-cyan-500/70',
+      };
+    case 'ree':
+      return {
+        textActive: 'text-violet-400',
+        bgTab: 'bg-violet-400/10',
+        border: 'border-violet-400/30',
+        labelText: 'text-violet-500/70',
+      };
+  }
+}
+
 // ============ SUB-COMPONENTS ============
+
+function TrackTabs({
+  active,
+  onSelect,
+}: {
+  active: Track;
+  onSelect: (t: Track) => void;
+}) {
+  const tracks: Track[] = ['pm', 'energy', 'ree'];
+
+  return (
+    <div className="flex items-center gap-1">
+      {tracks.map((t) => {
+        const isActive = t === active;
+        const accent = trackAccent(t);
+        return (
+          <button
+            key={t}
+            onClick={() => onSelect(t)}
+            className={`px-3 py-1 text-[10px] uppercase tracking-widest rounded transition-all ${
+              isActive
+                ? `${accent.textActive} ${accent.bgTab}`
+                : 'text-zinc-500 hover:text-zinc-300'
+            }`}
+          >
+            {TRACKS[t].shortName}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
 
 function RegimeBar({
   regime,
@@ -65,19 +133,22 @@ function RegimeBar({
 }
 
 function ThesisTracker({
+  track,
   conditions,
 }: {
+  track: Track;
   conditions: { label: string; met: boolean | null; value: string }[];
 }) {
   const met = conditions.filter((c) => c.met === true).length;
   const total = conditions.length;
   const ratio = total > 0 ? met / total : 0;
+  const accent = trackAccent(track);
 
   return (
     <div className="border-b border-zinc-800/50">
       <div className="px-4 py-2 flex items-center justify-between border-b border-zinc-800/30">
-        <span className="text-[10px] text-zinc-600 uppercase tracking-widest">
-          PM Thesis
+        <span className={`text-[10px] uppercase tracking-widest ${accent.labelText}`}>
+          {TRACKS[track].shortName} Thesis
         </span>
         {total > 0 && (
           <span
@@ -229,6 +300,7 @@ export default function Signal() {
   const [macro, setMacro] = useState<Record<string, MacroData>>({});
   const [ratios, setRatios] = useState<Record<string, number>>({});
   const [loaded, setLoaded] = useState(false);
+  const [activeTrack, setActiveTrack] = useState<Track>('pm');
 
   useEffect(() => {
     Promise.all([
@@ -244,12 +316,14 @@ export default function Signal() {
       .catch(() => setLoaded(true));
   }, []);
 
-  const regime = computeRegime(prices, macro, ratios);
-  const brief = generateBrief(prices, macro, ratios);
-  const thesis = computeThesis(prices, macro, ratios);
-  const signals = computeSignals(prices, macro, ratios);
-  const movers = computeMovers(prices);
-  const chart = pickChartSymbol(movers);
+  const regime = computeRegime(activeTrack, prices, macro, ratios);
+  const brief = generateBrief(activeTrack, prices, macro, ratios);
+  const thesis = computeThesis(activeTrack, prices, macro, ratios);
+  const signals = computeSignals(activeTrack, prices, macro, ratios);
+  const movers = computeMovers(activeTrack, prices);
+  const chart = pickChartSymbol(activeTrack, movers);
+  const ratioConfig = getTrackRatioConfig(activeTrack);
+  const accent = trackAccent(activeTrack);
 
   return (
     <div className="h-screen w-screen flex flex-col overflow-hidden bg-[#0a0a0a]">
@@ -277,6 +351,8 @@ export default function Signal() {
               Signal
             </span>
           </nav>
+          <div className="w-px h-4 bg-zinc-800" />
+          <TrackTabs active={activeTrack} onSelect={setActiveTrack} />
         </div>
 
         <RegimeBar regime={regime} loaded={loaded} />
@@ -286,9 +362,19 @@ export default function Signal() {
       <div className="flex flex-1 min-h-0">
         {/* LEFT PANEL — Intelligence */}
         <div className="w-[340px] shrink-0 border-r border-zinc-800/80 bg-[#0c0c0c] flex flex-col overflow-y-auto">
+          {/* Track Description */}
+          <div className={`px-4 py-2 border-b ${accent.border} bg-gradient-to-r from-zinc-900/80 to-transparent`}>
+            <span className={`text-[10px] uppercase tracking-widest font-medium ${accent.textActive}`}>
+              {TRACKS[activeTrack].name}
+            </span>
+            <p className="text-[10px] text-zinc-600 mt-0.5 leading-relaxed">
+              {TRACKS[activeTrack].description}
+            </p>
+          </div>
+
           {/* Assessment Brief */}
           <div className="px-4 py-3 border-b border-zinc-800/50">
-            <div className="text-[10px] text-zinc-600 uppercase tracking-widest mb-2">
+            <div className={`text-[10px] uppercase tracking-widest mb-2 ${accent.labelText}`}>
               Assessment
             </div>
             <p className="text-[12px] text-zinc-300 leading-relaxed">
@@ -297,7 +383,7 @@ export default function Signal() {
           </div>
 
           {/* Thesis */}
-          <ThesisTracker conditions={thesis} />
+          <ThesisTracker track={activeTrack} conditions={thesis} />
 
           {/* Signals */}
           <SignalList signals={signals} />
@@ -314,7 +400,7 @@ export default function Signal() {
               <span className="text-[10px] text-zinc-600 uppercase tracking-wider">
                 Showing
               </span>
-              <span className="text-[11px] text-zinc-300 font-medium">
+              <span className={`text-[11px] font-medium ${accent.textActive}`}>
                 {chart.reason}
               </span>
             </div>
@@ -328,17 +414,17 @@ export default function Signal() {
             <AdvancedChart symbol={chart.tv} interval="D" />
           </div>
 
-          {/* G/S Ratio strip */}
+          {/* Ratio strip */}
           <div className="h-[120px] shrink-0 border-t border-zinc-800/60">
             <RatioChart
-              numerator="GC=F"
-              denominator="SI=F"
-              title="Gold / Silver Ratio"
+              numerator={ratioConfig.numerator}
+              denominator={ratioConfig.denominator}
+              title={ratioConfig.title}
               start={new Date(Date.now() - 365 * 86400000).toISOString().slice(0, 10)}
               height={90}
-              lineColor="#ffea00"
-              bandHigh={90}
-              bandLow={65}
+              lineColor={ratioConfig.lineColor}
+              bandHigh={ratioConfig.bandHigh}
+              bandLow={ratioConfig.bandLow}
             />
           </div>
         </div>

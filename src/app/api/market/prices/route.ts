@@ -6,12 +6,34 @@ const CACHE_KEY = 'prices';
 const CACHE_TTL = 2 * 60 * 1000; // 2 minutes
 
 const SYMBOLS: Record<string, string> = {
+  // Precious Metals
   'GC=F': 'Gold', 'SI=F': 'Silver', 'PL=F': 'Platinum',
-  'DX-Y.NYB': 'DXY', 'BTC-USD': 'Bitcoin',
+  // ASX Gold Miners
   'NST.AX': 'Northern Star', 'EVN.AX': 'Evolution',
   'RMS.AX': 'Ramelius', 'WGX.AX': 'Westgold',
-  'SPY': 'S&P 500', 'GLD': 'Gold ETF', 'SLV': 'Silver ETF',
-  'HG=F': 'Copper', 'CL=F': 'Crude Oil',
+  // PM ETFs
+  'GLD': 'Gold ETF', 'SLV': 'Silver ETF',
+  // Energy — Uranium
+  'URA': 'Uranium ETF', 'CCJ': 'Cameco', 'UEC': 'Uranium Energy',
+  'PDN.AX': 'Paladin Energy', 'BOE.AX': 'Boss Energy',
+  'DYL.AX': 'Deep Yellow', 'LOT.AX': 'Lotus Resources',
+  // Energy — Natural Gas
+  'NG=F': 'Natural Gas',
+  // Energy — Nuclear / Grid
+  'SMR': 'NuScale Power', 'OKLO': 'Oklo', 'VST': 'Vistra', 'CEG': 'Constellation Energy',
+  // Energy — Oil
+  'CL=F': 'Crude Oil',
+  // Critical Minerals — REE
+  'REMX': 'REE ETF', 'MP': 'MP Materials',
+  'LYC.AX': 'Lynas', 'ARU.AX': 'Arafura',
+  'ILU.AX': 'Iluka', 'ASM.AX': 'Aust Strategic Mat',
+  // Critical Minerals — Lithium
+  'LIT': 'Lithium ETF', 'ALB': 'Albemarle',
+  'PLS.AX': 'Pilbara Minerals', 'MIN.AX': 'Mineral Resources',
+  // Critical Minerals — Copper
+  'HG=F': 'Copper', 'SCCO': 'Southern Copper',
+  // Macro / Indices
+  'DX-Y.NYB': 'DXY', 'BTC-USD': 'Bitcoin', 'SPY': 'S&P 500',
 };
 
 function safe(v: number | undefined | null): number | null {

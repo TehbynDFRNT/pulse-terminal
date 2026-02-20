@@ -129,6 +129,7 @@ function MacroIndicator({ label, value, suffix = '' }: {
 // ============ CHART SYMBOL MAP ============
 
 const CHART_MAP: Record<string, string> = {
+  // PM
   'GC=F': 'FOREXCOM:XAUUSD',
   'SI=F': 'FOREXCOM:XAGUSD',
   'PL=F': 'TVC:PLATINUM',
@@ -144,6 +145,31 @@ const CHART_MAP: Record<string, string> = {
   'SLV': 'AMEX:SLV',
   'HG=F': 'AMEX:CPER',
   'CL=F': 'AMEX:USO',
+  // Energy
+  'URA': 'AMEX:URA',
+  'CCJ': 'NYSE:CCJ',
+  'UEC': 'AMEX:UEC',
+  'PDN.AX': 'ASX:PDN',
+  'BOE.AX': 'ASX:BOE',
+  'DYL.AX': 'ASX:DYL',
+  'LOT.AX': 'ASX:LOT',
+  'NG=F': 'NYMEX:NG1!',
+  'SMR': 'NYSE:SMR',
+  'OKLO': 'NYSE:OKLO',
+  'VST': 'NYSE:VST',
+  'CEG': 'NASDAQ:CEG',
+  // REE / Critical Minerals
+  'REMX': 'AMEX:REMX',
+  'MP': 'NYSE:MP',
+  'LYC.AX': 'ASX:LYC',
+  'ARU.AX': 'ASX:ARU',
+  'ILU.AX': 'ASX:ILU',
+  'ASM.AX': 'ASX:ASM',
+  'LIT': 'AMEX:LIT',
+  'ALB': 'NYSE:ALB',
+  'PLS.AX': 'ASX:PLS',
+  'MIN.AX': 'ASX:MIN',
+  'SCCO': 'NYSE:SCCO',
 };
 
 // ============ MAIN ============
@@ -194,7 +220,9 @@ export default function Dashboard() {
 
   // Group prices
   const metalKeys = ['GC=F', 'SI=F', 'PL=F', 'HG=F', 'CL=F'];
-  const minerKeys = ['NST.AX', 'EVN.AX', 'RMS.AX', 'GOR.AX', 'WGX.AX'];
+  const minerKeys = ['NST.AX', 'EVN.AX', 'RMS.AX', 'WGX.AX'];
+  const energyKeys = ['URA', 'CCJ', 'UEC', 'PDN.AX', 'BOE.AX', 'DYL.AX', 'LOT.AX', 'NG=F', 'SMR', 'OKLO', 'VST', 'CEG'];
+  const critMinKeys = ['REMX', 'MP', 'LYC.AX', 'ARU.AX', 'ILU.AX', 'ASM.AX', 'LIT', 'ALB', 'PLS.AX', 'MIN.AX', 'SCCO'];
   const macroKeys = ['DX-Y.NYB', 'SPY', 'BTC-USD', 'GLD', 'SLV'];
 
   return (
@@ -252,11 +280,27 @@ export default function Dashboard() {
             <PriceRow key={k} symbol={k} data={prices[k]} onClick={() => setActiveSymbol(k)} active={activeSymbol === k} />
           ))}
 
-          {/* ASX Miners */}
+          {/* ASX Gold Miners */}
           <div className="px-3 py-1.5 border-b border-zinc-800/40 border-t border-zinc-800/40">
-            <span className="text-[9px] text-zinc-600 uppercase tracking-widest">ASX Miners</span>
+            <span className="text-[9px] text-zinc-600 uppercase tracking-widest">ASX Gold Miners</span>
           </div>
           {minerKeys.map((k) => prices[k] && (
+            <PriceRow key={k} symbol={k} data={prices[k]} onClick={() => setActiveSymbol(k)} active={activeSymbol === k} />
+          ))}
+
+          {/* Energy */}
+          <div className="px-3 py-1.5 border-b border-zinc-800/40 border-t border-zinc-800/40">
+            <span className="text-[9px] text-cyan-600/70 uppercase tracking-widest">Energy</span>
+          </div>
+          {energyKeys.map((k) => prices[k] && (
+            <PriceRow key={k} symbol={k} data={prices[k]} onClick={() => setActiveSymbol(k)} active={activeSymbol === k} />
+          ))}
+
+          {/* Critical Minerals */}
+          <div className="px-3 py-1.5 border-b border-zinc-800/40 border-t border-zinc-800/40">
+            <span className="text-[9px] text-violet-600/70 uppercase tracking-widest">Critical Minerals</span>
+          </div>
+          {critMinKeys.map((k) => prices[k] && (
             <PriceRow key={k} symbol={k} data={prices[k]} onClick={() => setActiveSymbol(k)} active={activeSymbol === k} />
           ))}
 
