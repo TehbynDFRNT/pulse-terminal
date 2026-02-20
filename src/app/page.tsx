@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import Link from 'next/link';
 import { SearchBar } from '@/components/SearchBar';
 import { Watchlist } from '@/components/Watchlist';
 import { InstrumentDetail } from '@/components/InstrumentDetail';
@@ -119,6 +120,24 @@ export default function Terminal() {
           <h1 className="text-sm font-semibold tracking-widest text-zinc-300 uppercase">
             Pulse
           </h1>
+          <div className="w-px h-4 bg-zinc-800" />
+          <nav className="flex items-center gap-1">
+            <span className="px-3 py-1 text-[10px] uppercase tracking-widest text-zinc-200 bg-zinc-800/50 rounded">
+              Terminal
+            </span>
+            <Link
+              href="/dashboard"
+              className="px-3 py-1 text-[10px] uppercase tracking-widest text-zinc-500 hover:text-zinc-300 transition-colors rounded"
+            >
+              Dashboard
+            </Link>
+            <Link
+              href="/signal"
+              className="px-3 py-1 text-[10px] uppercase tracking-widest text-zinc-500 hover:text-zinc-300 transition-colors rounded"
+            >
+              Signal
+            </Link>
+          </nav>
           <div className="w-px h-4 bg-zinc-800" />
           <ConnectionStatus />
         </div>

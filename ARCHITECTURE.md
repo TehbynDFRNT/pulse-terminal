@@ -24,7 +24,7 @@ A custom-built trading terminal that gives Tehbyn direct API-level access to 150
 | **Frontend** | Next.js 14 (App Router) + TypeScript | Tehbyn's stack, SSR for speed, API routes for backend |
 | **UI** | Tailwind CSS + shadcn/ui | Fast to build, dark mode native, clean components |
 | **State** | Zustand | Lightweight, no boilerplate, works with websockets |
-| **Charts** | Lightweight Charts (TradingView open-source lib) | Mini sparklines/price charts in watchlist — NOT a charting replacement |
+| **Charts** | Lightweight Charts (TradingView open-source lib) | Primary charting surface — full candlestick charts, overlays, multi-pane. Complement TradingView Pine Scripts (stored in `tradingview-pine/`) with embedded charts we fully control programmatically. Novacron can build and update chart configs, indicators, and layouts directly via code. |
 | **Broker API** | `ibkr-client` npm package | TypeScript IBKR Web API client with OAuth + WebSocket support |
 | **Real-time** | IBKR WebSocket API | Live market data, order status, portfolio updates |
 | **Auth gateway** | IBKR Client Portal Gateway (Java) | Required for individual accounts — runs locally, routes API calls |

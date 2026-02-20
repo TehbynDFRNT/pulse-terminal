@@ -1,0 +1,234 @@
+// Precious Metals & Miners Dashboard v1.0
+// © Novacron for Tehbyn Nova
+// Tracks ASX gold/silver miners against spot metals
+// Apply to ANY chart — dashboard pulls all data independently
+
+//@version=6
+indicator("⚙️ Precious Metals Dashboard", overlay=true, max_labels_count=50)
+
+// === INPUTS ===
+grp1 = "Trend Settings"
+fastLen   = input.int(9, "Fast EMA", minval=1, group=grp1)
+slowLen   = input.int(21, "Slow EMA", minval=1, group=grp1)
+trendLen  = input.int(50, "Trend EMA", minval=1, group=grp1)
+
+grp2 = "Momentum"
+rsiLen    = input.int(14, "RSI Length", minval=1, group=grp2)
+rsiOB     = input.int(70, "RSI Overbought", group=grp2)
+rsiOS     = input.int(30, "RSI Oversold", group=grp2)
+
+grp3 = "Volume"
+volLen    = input.int(20, "Volume SMA", minval=1, group=grp3)
+volMult   = input.float(1.5, "Spike Multiplier", step=0.1, group=grp3)
+
+grp4 = "Display"
+showTable = input.bool(true, "Show Sector Table", group=grp4)
+showSignals = input.bool(true, "Show Cross Signals", group=grp4)
+showCloud = input.bool(true, "Show EMA Cloud", group=grp4)
+
+// === CURRENT CHART CALCULATIONS ===
+fastEMA  = ta.ema(close, fastLen)
+slowEMA  = ta.ema(close, slowLen)
+trendEMA = ta.ema(close, trendLen)
+rsi      = ta.rsi(close, rsiLen)
+volSMA   = ta.sma(volume, volLen)
+atr      = ta.atr(14)
+
+bullTrend  = fastEMA > slowEMA
+crossUp    = ta.crossover(fastEMA, slowEMA)
+crossDown  = ta.crossunder(fastEMA, slowEMA)
+volSpike   = volume > (volSMA * volMult)
+
+// === PLOT EMAs ON CURRENT CHART ===
+p1 = plot(fastEMA, "Fast EMA", color=color.new(#00BCD4, 0), linewidth=2)
+p2 = plot(slowEMA, "Slow EMA", color=color.new(#FF5722, 0), linewidth=2)
+plot(trendEMA, "Trend EMA", color=color.new(#9E9E9E, 40), linewidth=1, style=plot.style_cross)
+
+// EMA Cloud
+fillCol = showCloud ? (fastEMA > slowEMA ? color.new(#00BCD4, 88) : color.new(#FF5722, 88)) : na
+fill(p1, p2, fillCol)
+
+// === SIGNALS ON CURRENT CHART ===
+plotshape(showSignals and crossUp,  title="Bull Cross", location=location.belowbar, style=shape.triangleup,   color=#00BCD4, size=size.small)
+plotshape(showSignals and crossDown, title="Bear Cross", location=location.abovebar, style=shape.triangledown, color=#FF5722, size=size.small)
+plotshape(volSpike and not volSpike[1], title="Vol Spike", location=location.belowbar, style=shape.circle, color=color.new(#FFEB3B, 40), size=size.tiny)
+
+// === MULTI-SYMBOL DATA PULL ===
+// Spot metals
+goldClose = request.security("TVC:GOLD", timeframe.period, close)
+goldChg   = request.security("TVC:GOLD", timeframe.period, (close - close[1]) / close[1] * 100)
+goldRSI   = request.security("TVC:GOLD", timeframe.period, ta.rsi(close, rsiLen))
+
+silverClose = request.security("TVC:SILVER", timeframe.period, close)
+silverChg   = request.security("TVC:SILVER", timeframe.period, (close - close[1]) / close[1] * 100)
+silverRSI   = request.security("TVC:SILVER", timeframe.period, ta.rsi(close, rsiLen))
+
+// Gold/Silver ratio
+gsRatio = goldClose / silverClose
+
+// ASX Miners — price, daily change %, RSI, volume ratio
+// Northern Star (NST)
+nstClose  = request.security("ASX:NST", timeframe.period, close)
+nstChg    = request.security("ASX:NST", timeframe.period, (close - close[1]) / close[1] * 100)
+nstRSI    = request.security("ASX:NST", timeframe.period, ta.rsi(close, rsiLen))
+nstVR     = request.security("ASX:NST", timeframe.period, volume / ta.sma(volume, 20))
+nstTrend  = request.security("ASX:NST", timeframe.period, ta.ema(close, 9) > ta.ema(close, 21))
+
+// Evolution Mining (EVN)
+evnClose  = request.security("ASX:EVN", timeframe.period, close)
+evnChg    = request.security("ASX:EVN", timeframe.period, (close - close[1]) / close[1] * 100)
+evnRSI    = request.security("ASX:EVN", timeframe.period, ta.rsi(close, rsiLen))
+evnVR     = request.security("ASX:EVN", timeframe.period, volume / ta.sma(volume, 20))
+evnTrend  = request.security("ASX:EVN", timeframe.period, ta.ema(close, 9) > ta.ema(close, 21))
+
+// De Grey Mining (DEG)
+degClose  = request.security("ASX:DEG", timeframe.period, close)
+degChg    = request.security("ASX:DEG", timeframe.period, (close - close[1]) / close[1] * 100)
+degRSI    = request.security("ASX:DEG", timeframe.period, ta.rsi(close, rsiLen))
+degVR     = request.security("ASX:DEG", timeframe.period, volume / ta.sma(volume, 20))
+degTrend  = request.security("ASX:DEG", timeframe.period, ta.ema(close, 9) > ta.ema(close, 21))
+
+// Ramelius Resources (RMS)
+rmsClose  = request.security("ASX:RMS", timeframe.period, close)
+rmsChg    = request.security("ASX:RMS", timeframe.period, (close - close[1]) / close[1] * 100)
+rmsRSI    = request.security("ASX:RMS", timeframe.period, ta.rsi(close, rsiLen))
+rmsVR     = request.security("ASX:RMS", timeframe.period, volume / ta.sma(volume, 20))
+rmsTrend  = request.security("ASX:RMS", timeframe.period, ta.ema(close, 9) > ta.ema(close, 21))
+
+// Gold Road Resources (GOR)
+gorClose  = request.security("ASX:GOR", timeframe.period, close)
+gorChg    = request.security("ASX:GOR", timeframe.period, (close - close[1]) / close[1] * 100)
+gorRSI    = request.security("ASX:GOR", timeframe.period, ta.rsi(close, rsiLen))
+gorVR     = request.security("ASX:GOR", timeframe.period, volume / ta.sma(volume, 20))
+gorTrend  = request.security("ASX:GOR", timeframe.period, ta.ema(close, 9) > ta.ema(close, 21))
+
+// Silver Lake Resources (SLR)
+slrClose  = request.security("ASX:SLR", timeframe.period, close)
+slrChg    = request.security("ASX:SLR", timeframe.period, (close - close[1]) / close[1] * 100)
+slrRSI    = request.security("ASX:SLR", timeframe.period, ta.rsi(close, rsiLen))
+slrVR     = request.security("ASX:SLR", timeframe.period, volume / ta.sma(volume, 20))
+slrTrend  = request.security("ASX:SLR", timeframe.period, ta.ema(close, 9) > ta.ema(close, 21))
+
+// === HELPER FUNCTIONS ===
+trendIcon(bull) => bull ? "▲" : "▼"
+trendColor(bull) => bull ? #00BCD4 : #FF5722
+
+chgColor(chg) =>
+    chg > 1.0 ? #00E676 : chg > 0 ? #00BCD4 : chg > -1.0 ? #FF5722 : #FF1744
+
+rsiColor(r) =>
+    r > rsiOB ? #FF5722 : r < rsiOS ? #00BCD4 : color.white
+
+volColor(vr) =>
+    vr > 2.0 ? #FFEB3B : vr > 1.5 ? #FFC107 : vr > 1.0 ? color.white : color.gray
+
+// === SECTOR DASHBOARD TABLE ===
+if showTable and barstate.islast
+    var table t = table.new(position.top_right, 7, 10, bgcolor=color.new(#0D0D0D, 5), border_width=1, border_color=color.new(#333333, 0), frame_width=2, frame_color=color.new(#00BCD4, 60))
+
+    // Header row
+    table.cell(t, 0, 0, "TICKER",  text_color=#00BCD4, text_size=size.tiny, bgcolor=color.new(#1A1A1A, 0))
+    table.cell(t, 1, 0, "PRICE",   text_color=#00BCD4, text_size=size.tiny, bgcolor=color.new(#1A1A1A, 0))
+    table.cell(t, 2, 0, "CHG%",    text_color=#00BCD4, text_size=size.tiny, bgcolor=color.new(#1A1A1A, 0))
+    table.cell(t, 3, 0, "TREND",   text_color=#00BCD4, text_size=size.tiny, bgcolor=color.new(#1A1A1A, 0))
+    table.cell(t, 4, 0, "RSI",     text_color=#00BCD4, text_size=size.tiny, bgcolor=color.new(#1A1A1A, 0))
+    table.cell(t, 5, 0, "VOL",     text_color=#00BCD4, text_size=size.tiny, bgcolor=color.new(#1A1A1A, 0))
+    table.cell(t, 6, 0, "SIGNAL",  text_color=#00BCD4, text_size=size.tiny, bgcolor=color.new(#1A1A1A, 0))
+
+    // --- SPOT METALS ---
+    // Gold
+    table.cell(t, 0, 1, "GOLD",    text_color=#FFD700, text_size=size.tiny, bgcolor=color.new(#1A1A1A, 0))
+    table.cell(t, 1, 1, str.tostring(goldClose, "#.##"), text_color=color.white, text_size=size.tiny, bgcolor=color.new(#1A1A1A, 0))
+    table.cell(t, 2, 1, str.tostring(goldChg, "#.##") + "%", text_color=chgColor(goldChg), text_size=size.tiny, bgcolor=color.new(#1A1A1A, 0))
+    table.cell(t, 3, 1, "—",       text_color=color.gray, text_size=size.tiny, bgcolor=color.new(#1A1A1A, 0))
+    table.cell(t, 4, 1, str.tostring(goldRSI, "#.0"), text_color=rsiColor(goldRSI), text_size=size.tiny, bgcolor=color.new(#1A1A1A, 0))
+    table.cell(t, 5, 1, "—",       text_color=color.gray, text_size=size.tiny, bgcolor=color.new(#1A1A1A, 0))
+    gsStr = "G/S: " + str.tostring(gsRatio, "#.#")
+    gsCol = gsRatio > 80 ? #00BCD4 : gsRatio < 60 ? #FF5722 : color.white  // High ratio = silver undervalued
+    table.cell(t, 6, 1, gsStr, text_color=gsCol, text_size=size.tiny, bgcolor=color.new(#1A1A1A, 0))
+
+    // Silver
+    table.cell(t, 0, 2, "SILVER",  text_color=#C0C0C0, text_size=size.tiny, bgcolor=color.new(#1A1A1A, 0))
+    table.cell(t, 1, 2, str.tostring(silverClose, "#.##"), text_color=color.white, text_size=size.tiny, bgcolor=color.new(#1A1A1A, 0))
+    table.cell(t, 2, 2, str.tostring(silverChg, "#.##") + "%", text_color=chgColor(silverChg), text_size=size.tiny, bgcolor=color.new(#1A1A1A, 0))
+    table.cell(t, 3, 2, "—",       text_color=color.gray, text_size=size.tiny, bgcolor=color.new(#1A1A1A, 0))
+    table.cell(t, 4, 2, str.tostring(silverRSI, "#.0"), text_color=rsiColor(silverRSI), text_size=size.tiny, bgcolor=color.new(#1A1A1A, 0))
+    table.cell(t, 5, 2, "—",       text_color=color.gray, text_size=size.tiny, bgcolor=color.new(#1A1A1A, 0))
+    table.cell(t, 6, 2, "",        text_color=color.gray, text_size=size.tiny, bgcolor=color.new(#1A1A1A, 0))
+
+    // --- SEPARATOR ---
+    table.cell(t, 0, 3, "MINERS",  text_color=#FFD700, text_size=size.tiny, bgcolor=color.new(#222222, 0))
+    table.cell(t, 1, 3, "",        text_color=color.gray, text_size=size.tiny, bgcolor=color.new(#222222, 0))
+    table.cell(t, 2, 3, "",        text_color=color.gray, text_size=size.tiny, bgcolor=color.new(#222222, 0))
+    table.cell(t, 3, 3, "",        text_color=color.gray, text_size=size.tiny, bgcolor=color.new(#222222, 0))
+    table.cell(t, 4, 3, "",        text_color=color.gray, text_size=size.tiny, bgcolor=color.new(#222222, 0))
+    table.cell(t, 5, 3, "",        text_color=color.gray, text_size=size.tiny, bgcolor=color.new(#222222, 0))
+    table.cell(t, 6, 3, "",        text_color=color.gray, text_size=size.tiny, bgcolor=color.new(#222222, 0))
+
+    // --- ASX MINERS ---
+    // NST
+    nstSig = nstRSI > rsiOB ? "OVERBOUGHT" : nstRSI < rsiOS ? "OVERSOLD" : nstVR > 2.0 ? "VOL SURGE" : ""
+    table.cell(t, 0, 4, "NST",     text_color=trendColor(nstTrend), text_size=size.tiny, bgcolor=color.new(#1A1A1A, 0))
+    table.cell(t, 1, 4, str.tostring(nstClose, "#.##"), text_color=color.white, text_size=size.tiny, bgcolor=color.new(#1A1A1A, 0))
+    table.cell(t, 2, 4, str.tostring(nstChg, "#.##") + "%", text_color=chgColor(nstChg), text_size=size.tiny, bgcolor=color.new(#1A1A1A, 0))
+    table.cell(t, 3, 4, trendIcon(nstTrend), text_color=trendColor(nstTrend), text_size=size.tiny, bgcolor=color.new(#1A1A1A, 0))
+    table.cell(t, 4, 4, str.tostring(nstRSI, "#.0"), text_color=rsiColor(nstRSI), text_size=size.tiny, bgcolor=color.new(#1A1A1A, 0))
+    table.cell(t, 5, 4, str.tostring(nstVR, "#.#") + "x", text_color=volColor(nstVR), text_size=size.tiny, bgcolor=color.new(#1A1A1A, 0))
+    table.cell(t, 6, 4, nstSig, text_color=#FFEB3B, text_size=size.tiny, bgcolor=color.new(#1A1A1A, 0))
+
+    // EVN
+    evnSig = evnRSI > rsiOB ? "OVERBOUGHT" : evnRSI < rsiOS ? "OVERSOLD" : evnVR > 2.0 ? "VOL SURGE" : ""
+    table.cell(t, 0, 5, "EVN",     text_color=trendColor(evnTrend), text_size=size.tiny, bgcolor=color.new(#1A1A1A, 0))
+    table.cell(t, 1, 5, str.tostring(evnClose, "#.##"), text_color=color.white, text_size=size.tiny, bgcolor=color.new(#1A1A1A, 0))
+    table.cell(t, 2, 5, str.tostring(evnChg, "#.##") + "%", text_color=chgColor(evnChg), text_size=size.tiny, bgcolor=color.new(#1A1A1A, 0))
+    table.cell(t, 3, 5, trendIcon(evnTrend), text_color=trendColor(evnTrend), text_size=size.tiny, bgcolor=color.new(#1A1A1A, 0))
+    table.cell(t, 4, 5, str.tostring(evnRSI, "#.0"), text_color=rsiColor(evnRSI), text_size=size.tiny, bgcolor=color.new(#1A1A1A, 0))
+    table.cell(t, 5, 5, str.tostring(evnVR, "#.#") + "x", text_color=volColor(evnVR), text_size=size.tiny, bgcolor=color.new(#1A1A1A, 0))
+    table.cell(t, 6, 5, evnSig, text_color=#FFEB3B, text_size=size.tiny, bgcolor=color.new(#1A1A1A, 0))
+
+    // DEG
+    degSig = degRSI > rsiOB ? "OVERBOUGHT" : degRSI < rsiOS ? "OVERSOLD" : degVR > 2.0 ? "VOL SURGE" : ""
+    table.cell(t, 0, 6, "DEG",     text_color=trendColor(degTrend), text_size=size.tiny, bgcolor=color.new(#1A1A1A, 0))
+    table.cell(t, 1, 6, str.tostring(degClose, "#.##"), text_color=color.white, text_size=size.tiny, bgcolor=color.new(#1A1A1A, 0))
+    table.cell(t, 2, 6, str.tostring(degChg, "#.##") + "%", text_color=chgColor(degChg), text_size=size.tiny, bgcolor=color.new(#1A1A1A, 0))
+    table.cell(t, 3, 6, trendIcon(degTrend), text_color=trendColor(degTrend), text_size=size.tiny, bgcolor=color.new(#1A1A1A, 0))
+    table.cell(t, 4, 6, str.tostring(degRSI, "#.0"), text_color=rsiColor(degRSI), text_size=size.tiny, bgcolor=color.new(#1A1A1A, 0))
+    table.cell(t, 5, 6, str.tostring(degVR, "#.#") + "x", text_color=volColor(degVR), text_size=size.tiny, bgcolor=color.new(#1A1A1A, 0))
+    table.cell(t, 6, 6, degSig, text_color=#FFEB3B, text_size=size.tiny, bgcolor=color.new(#1A1A1A, 0))
+
+    // RMS
+    rmsSig = rmsRSI > rsiOB ? "OVERBOUGHT" : rmsRSI < rsiOS ? "OVERSOLD" : rmsVR > 2.0 ? "VOL SURGE" : ""
+    table.cell(t, 0, 7, "RMS",     text_color=trendColor(rmsTrend), text_size=size.tiny, bgcolor=color.new(#1A1A1A, 0))
+    table.cell(t, 1, 7, str.tostring(rmsClose, "#.##"), text_color=color.white, text_size=size.tiny, bgcolor=color.new(#1A1A1A, 0))
+    table.cell(t, 2, 7, str.tostring(rmsChg, "#.##") + "%", text_color=chgColor(rmsChg), text_size=size.tiny, bgcolor=color.new(#1A1A1A, 0))
+    table.cell(t, 3, 7, trendIcon(rmsTrend), text_color=trendColor(rmsTrend), text_size=size.tiny, bgcolor=color.new(#1A1A1A, 0))
+    table.cell(t, 4, 7, str.tostring(rmsRSI, "#.0"), text_color=rsiColor(rmsRSI), text_size=size.tiny, bgcolor=color.new(#1A1A1A, 0))
+    table.cell(t, 5, 7, str.tostring(rmsVR, "#.#") + "x", text_color=volColor(rmsVR), text_size=size.tiny, bgcolor=color.new(#1A1A1A, 0))
+    table.cell(t, 6, 7, rmsSig, text_color=#FFEB3B, text_size=size.tiny, bgcolor=color.new(#1A1A1A, 0))
+
+    // GOR
+    gorSig = gorRSI > rsiOB ? "OVERBOUGHT" : gorRSI < rsiOS ? "OVERSOLD" : gorVR > 2.0 ? "VOL SURGE" : ""
+    table.cell(t, 0, 8, "GOR",     text_color=trendColor(gorTrend), text_size=size.tiny, bgcolor=color.new(#1A1A1A, 0))
+    table.cell(t, 1, 8, str.tostring(gorClose, "#.##"), text_color=color.white, text_size=size.tiny, bgcolor=color.new(#1A1A1A, 0))
+    table.cell(t, 2, 8, str.tostring(gorChg, "#.##") + "%", text_color=chgColor(gorChg), text_size=size.tiny, bgcolor=color.new(#1A1A1A, 0))
+    table.cell(t, 3, 8, trendIcon(gorTrend), text_color=trendColor(gorTrend), text_size=size.tiny, bgcolor=color.new(#1A1A1A, 0))
+    table.cell(t, 4, 8, str.tostring(gorRSI, "#.0"), text_color=rsiColor(gorRSI), text_size=size.tiny, bgcolor=color.new(#1A1A1A, 0))
+    table.cell(t, 5, 8, str.tostring(gorVR, "#.#") + "x", text_color=volColor(gorVR), text_size=size.tiny, bgcolor=color.new(#1A1A1A, 0))
+    table.cell(t, 6, 8, gorSig, text_color=#FFEB3B, text_size=size.tiny, bgcolor=color.new(#1A1A1A, 0))
+
+    // SLR
+    slrSig = slrRSI > rsiOB ? "OVERBOUGHT" : slrRSI < rsiOS ? "OVERSOLD" : slrVR > 2.0 ? "VOL SURGE" : ""
+    table.cell(t, 0, 9, "SLR",     text_color=trendColor(slrTrend), text_size=size.tiny, bgcolor=color.new(#1A1A1A, 0))
+    table.cell(t, 1, 9, str.tostring(slrClose, "#.##"), text_color=color.white, text_size=size.tiny, bgcolor=color.new(#1A1A1A, 0))
+    table.cell(t, 2, 9, str.tostring(slrChg, "#.##") + "%", text_color=chgColor(slrChg), text_size=size.tiny, bgcolor=color.new(#1A1A1A, 0))
+    table.cell(t, 3, 9, trendIcon(slrTrend), text_color=trendColor(slrTrend), text_size=size.tiny, bgcolor=color.new(#1A1A1A, 0))
+    table.cell(t, 4, 9, str.tostring(slrRSI, "#.0"), text_color=rsiColor(slrRSI), text_size=size.tiny, bgcolor=color.new(#1A1A1A, 0))
+    table.cell(t, 5, 9, str.tostring(slrVR, "#.#") + "x", text_color=volColor(slrVR), text_size=size.tiny, bgcolor=color.new(#1A1A1A, 0))
+    table.cell(t, 6, 9, slrSig, text_color=#FFEB3B, text_size=size.tiny, bgcolor=color.new(#1A1A1A, 0))
+
+// === ALERTS ===
+alertcondition(crossUp, "EMA Bull Cross", "Bullish EMA crossover detected")
+alertcondition(crossDown, "EMA Bear Cross", "Bearish EMA crossover detected")
+alertcondition(volSpike, "Volume Spike", "Volume spike detected — above average threshold")
+alertcondition(rsi > rsiOB, "RSI Overbought", "RSI crossed above overbought level")
+alertcondition(rsi < rsiOS, "RSI Oversold", "RSI crossed below oversold level")

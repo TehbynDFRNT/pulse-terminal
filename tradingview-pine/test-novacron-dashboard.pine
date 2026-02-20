@@ -1,0 +1,70 @@
+// This Pine Script™ code is subject to the terms of the Mozilla Public License 2.0
+// © Novacron for Tehbyn Nova
+
+//@version=6
+indicator("Novacron Test Dashboard", overlay=true)
+
+// === INPUTS ===
+fastLen = input.int(9, "Fast EMA", minval=1)
+slowLen = input.int(21, "Slow EMA", minval=1)
+rsiLen  = input.int(14, "RSI Length", minval=1)
+volLen  = input.int(20, "Volume SMA Length", minval=1)
+
+// === CALCULATIONS ===
+fastEMA = ta.ema(close, fastLen)
+slowEMA = ta.ema(close, slowLen)
+rsi     = ta.rsi(close, rsiLen)
+volSMA  = ta.sma(volume, volLen)
+volSpike = volume > (volSMA * 1.5)
+atr     = ta.atr(14)
+
+// Trend detection
+bullTrend = fastEMA > slowEMA
+bearTrend = fastEMA < slowEMA
+crossUp   = ta.crossover(fastEMA, slowEMA)
+crossDown = ta.crossunder(fastEMA, slowEMA)
+
+// === PLOT EMAs ===
+plot(fastEMA, "Fast EMA", color=color.new(#00BCD4, 0), linewidth=2)
+plot(slowEMA, "Slow EMA", color=color.new(#FF5722, 0), linewidth=2)
+
+// === CROSS SIGNALS ===
+plotshape(crossUp,  title="Bull Cross", location=location.belowbar, style=shape.triangleup,   color=#00BCD4, size=size.small)
+plotshape(crossDown, title="Bear Cross", location=location.abovebar, style=shape.triangledown, color=#FF5722, size=size.small)
+
+// === VOLUME SPIKE MARKERS ===
+plotshape(volSpike, title="Vol Spike", location=location.belowbar, style=shape.circle, color=color.new(#FFEB3B, 60), size=size.tiny)
+
+// === INFO TABLE (top right) ===
+var table dash = table.new(position.top_right, 2, 6, bgcolor=color.new(#1A1A1A, 10), border_width=1, border_color=color.new(#333333, 0))
+
+if barstate.islast
+    // Header
+    table.cell(dash, 0, 0, "NOVACRON", text_color=#00BCD4, text_size=size.small, bgcolor=color.new(#1A1A1A, 0))
+    table.cell(dash, 1, 0, syminfo.ticker, text_color=color.white, text_size=size.small, bgcolor=color.new(#1A1A1A, 0))
+    
+    // Trend
+    trendStr = bullTrend ? "BULL ▲" : "BEAR ▼"
+    trendCol = bullTrend ? #00BCD4 : #FF5722
+    table.cell(dash, 0, 1, "Trend", text_color=color.gray, text_size=size.tiny, bgcolor=color.new(#1A1A1A, 0))
+    table.cell(dash, 1, 1, trendStr, text_color=trendCol, text_size=size.tiny, bgcolor=color.new(#1A1A1A, 0))
+    
+    // RSI
+    rsiCol = rsi > 70 ? #FF5722 : rsi < 30 ? #00BCD4 : color.white
+    table.cell(dash, 0, 2, "RSI", text_color=color.gray, text_size=size.tiny, bgcolor=color.new(#1A1A1A, 0))
+    table.cell(dash, 1, 2, str.tostring(rsi, "#.0"), text_color=rsiCol, text_size=size.tiny, bgcolor=color.new(#1A1A1A, 0))
+    
+    // ATR
+    table.cell(dash, 0, 3, "ATR(14)", text_color=color.gray, text_size=size.tiny, bgcolor=color.new(#1A1A1A, 0))
+    table.cell(dash, 1, 3, str.tostring(atr, "#.##"), text_color=color.white, text_size=size.tiny, bgcolor=color.new(#1A1A1A, 0))
+    
+    // Volume vs avg
+    volRatio = volume / volSMA
+    volStr = str.tostring(volRatio, "#.#") + "x"
+    volCol = volRatio > 1.5 ? #FFEB3B : volRatio > 1.0 ? color.white : color.gray
+    table.cell(dash, 0, 4, "Vol/Avg", text_color=color.gray, text_size=size.tiny, bgcolor=color.new(#1A1A1A, 0))
+    table.cell(dash, 1, 4, volStr, text_color=volCol, text_size=size.tiny, bgcolor=color.new(#1A1A1A, 0))
+    
+    // Price
+    table.cell(dash, 0, 5, "Price", text_color=color.gray, text_size=size.tiny, bgcolor=color.new(#1A1A1A, 0))
+    table.cell(dash, 1, 5, str.tostring(close, "#.##"), text_color=color.white, text_size=size.tiny, bgcolor=color.new(#1A1A1A, 0))
