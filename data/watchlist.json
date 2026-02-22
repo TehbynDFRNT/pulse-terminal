@@ -1,3 +1,11 @@
 {
-  "items": []
+  "items": [
+    {
+      "conid": 69067924,
+      "symbol": "MARA",
+      "name": "MARA HOLDINGS INC",
+      "exchange": "NASDAQ",
+      "type": "STK"
+    }
+  ]
 }
