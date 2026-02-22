@@ -1037,16 +1037,38 @@ export function pickChartSymbol(
 
 // ============ BRIEF (dispatched) ============
 
+// Optional fundamentals context for enhanced briefs
+export interface FundamentalsContext {
+  energy?: {
+    sputLbs?: number | null;
+    uraniumSpot?: number | null;
+    reactorCount?: number | null;
+    gridQueueMW?: number | null;
+  };
+  ree?: {
+    ndprPrice?: number | null;
+    copperStocks?: number | null;
+    remxFlowDirection?: string;
+    projectsOnTrack?: number;
+    projectsTotal?: number;
+  };
+  pm?: {
+    centralBankTonnes?: number | null;
+    centralBankPeriod?: string;
+  };
+}
+
 export function generateBrief(
   track: Track,
   prices: Record<string, PriceData>,
   macro: Record<string, MacroData>,
   ratios: Record<string, number>,
+  fundamentals?: FundamentalsContext,
 ): string {
   switch (track) {
-    case 'pm': return generateBriefPM(prices, macro, ratios);
-    case 'energy': return generateBriefEnergy(prices);
-    case 'ree': return generateBriefREE(prices);
+    case 'pm': return generateBriefPM(prices, macro, ratios, fundamentals);
+    case 'energy': return generateBriefEnergy(prices, fundamentals);
+    case 'ree': return generateBriefREE(prices, fundamentals);
   }
 }
 
@@ -1054,6 +1076,7 @@ function generateBriefPM(
   prices: Record<string, PriceData>,
   macro: Record<string, MacroData>,
   ratios: Record<string, number>,
+  fundamentals?: FundamentalsContext,
 ): string {
   const parts: string[] = [];
   const gold = prices['GC=F'];
@@ -1107,11 +1130,17 @@ function generateBriefPM(
     else if (stress > 1) parts.push('Financial stress elevated');
   }
 
+  // Fundamental context
+  if (fundamentals?.pm?.centralBankTonnes) {
+    const t = fundamentals.pm.centralBankTonnes;
+    if (t > 900) parts.push(`Central banks bought ${t}t in ${fundamentals.pm.centralBankPeriod || 'recent period'} — structural bid`);
+  }
+
   if (parts.length === 0) return 'Waiting for data...';
   return parts.join('. ') + '.';
 }
 
-function generateBriefEnergy(prices: Record<string, PriceData>): string {
+function generateBriefEnergy(prices: Record<string, PriceData>, fundamentals?: FundamentalsContext): string {
   const parts: string[] = [];
   const ura = prices['URA'];
   const ccj = prices['CCJ'];
@@ -1130,11 +1159,15 @@ function generateBriefEnergy(prices: Record<string, PriceData>): string {
     }
   }
 
-  // Uranium vs MA
+  // Uranium vs MA + fundamental context
   if (ura?.price && ura?.ma_50d) {
     const pct = ((ura.price - ura.ma_50d) / ura.ma_50d) * 100;
-    if (pct > 5) parts.push(`URA trending ${pct.toFixed(0)}% above 50d MA — supply deficit narrative intact`);
+    const sputContext = fundamentals?.energy?.sputLbs
+      ? ` with SPUT holding ${(fundamentals.energy.sputLbs / 1_000_000).toFixed(1)}M lbs`
+      : '';
+    if (pct > 5) parts.push(`URA trending ${pct.toFixed(0)}% above 50d MA${sputContext} — supply deficit thesis intact`);
     else if (pct < -5) parts.push(`URA ${Math.abs(pct).toFixed(0)}% below 50d MA — sentiment weakening`);
+    else if (sputContext) parts.push(`URA near 50d MA${sputContext}`);
   }
 
   // Nuclear plays
@@ -1169,11 +1202,21 @@ function generateBriefEnergy(prices: Record<string, PriceData>): string {
     else parts.push('Cameco below 50d MA — Western production proxy weak');
   }
 
+  // Fundamental context
+  if (fundamentals?.energy?.uraniumSpot) {
+    const spot = fundamentals.energy.uraniumSpot;
+    if (spot > 90) parts.push(`U3O8 spot at $${spot.toFixed(0)}/lb — approaching $100 threshold`);
+    else if (spot > 100) parts.push(`U3O8 spot above $100/lb — incentive price for new supply`);
+  }
+  if (fundamentals?.energy?.reactorCount) {
+    parts.push(`${fundamentals.energy.reactorCount} US reactors operational`);
+  }
+
   if (parts.length === 0) return 'Waiting for energy data...';
   return parts.join('. ') + '.';
 }
 
-function generateBriefREE(prices: Record<string, PriceData>): string {
+function generateBriefREE(prices: Record<string, PriceData>, fundamentals?: FundamentalsContext): string {
   const parts: string[] = [];
   const remx = prices['REMX'];
   const lyc = prices['LYC.AX'];
@@ -1193,17 +1236,20 @@ function generateBriefREE(prices: Record<string, PriceData>): string {
     }
   }
 
-  // Western processors
+  // Western processors + fundamental context
   const lycAbove = aboveMa(lyc);
   const mpAbove = aboveMa(mp);
+  const projectContext = fundamentals?.ree?.projectsOnTrack != null && fundamentals?.ree?.projectsTotal
+    ? `. ${fundamentals.ree.projectsOnTrack}/${fundamentals.ree.projectsTotal} Western projects on track`
+    : '';
   if (lycAbove === true && mpAbove === true) {
-    parts.push('Both Lynas and MP above 50d MA — Western processing capacity being bid');
+    parts.push(`Both Lynas and MP above 50d MA — Western processing capacity being bid${projectContext}`);
   } else if (lycAbove === true) {
-    parts.push('Lynas above 50d MA but MP lagging — Australian REE processing leading');
+    parts.push(`Lynas above 50d MA but MP lagging${projectContext}`);
   } else if (mpAbove === true) {
-    parts.push('MP above 50d MA but Lynas lagging — US REE processing leading');
+    parts.push(`MP above 50d MA but Lynas lagging${projectContext}`);
   } else if (lycAbove === false && mpAbove === false) {
-    parts.push('Western REE processors both below 50d MA — reshoring trade under pressure');
+    parts.push(`Western REE processors both below 50d MA — reshoring trade under pressure${projectContext}`);
   }
 
   // Lithium
@@ -1223,6 +1269,15 @@ function generateBriefREE(prices: Record<string, PriceData>): string {
     if (pct < 3) parts.push('Copper near 52-week high — electrification demand strong');
     else if (copper.ma_50d && copper.price > copper.ma_50d) parts.push('Copper above 50d MA — demand intact');
     else if (copper.ma_50d && copper.price < copper.ma_50d) parts.push('Copper below 50d MA — demand concerns');
+  }
+
+  // Fundamental context
+  if (fundamentals?.ree?.ndprPrice) {
+    const ndpr = fundamentals.ree.ndprPrice;
+    if (ndpr > 80) parts.push(`NdPr at $${ndpr.toFixed(0)}/kg — supply tightening`);
+  }
+  if (fundamentals?.ree?.remxFlowDirection === 'inflow') {
+    parts.push('REMX seeing inflows — institutional interest returning');
   }
 
   if (parts.length === 0) return 'Waiting for critical minerals data...';
