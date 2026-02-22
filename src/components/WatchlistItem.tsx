@@ -20,9 +20,12 @@ export function WatchlistItem({ item }: Props) {
   const isPositive = change >= 0;
 
   return (
-    <button
+    <div
+      role="button"
+      tabIndex={0}
       onClick={() => selectInstrument(item.conid)}
-      className={`w-full flex items-center justify-between px-3 py-2 text-left transition-colors group ${
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') selectInstrument(item.conid); }}
+      className={`w-full flex items-center justify-between px-3 py-2 text-left transition-colors group cursor-pointer ${
         isSelected
           ? 'bg-accent border-l-2 border-l-primary'
           : 'hover:bg-accent/50 border-l-2 border-l-transparent'
@@ -60,6 +63,6 @@ export function WatchlistItem({ item }: Props) {
           <X className="h-3 w-3" />
         </button>
       </div>
-    </button>
+    </div>
   );
 }

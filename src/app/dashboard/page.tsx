@@ -6,6 +6,7 @@ import { TickerTape } from '@/components/tv/TickerTape';
 import { AdvancedChart } from '@/components/tv/AdvancedChart';
 import { TopStories } from '@/components/tv/TopStories';
 import { RatioChart } from '@/components/charts/RatioChart';
+import { ValuationPanel } from '@/components/ValuationPanel';
 
 // ============ TYPES ============
 
@@ -83,31 +84,36 @@ const changeColor = (n: number | null | undefined) => {
 
 // ============ PRICE ROW ============
 
-function PriceRow({ symbol, data, onClick, active }: {
-  symbol: string; data: PriceData; onClick: () => void; active: boolean;
+function PriceRow({ symbol, data, onClick, active, onValuation }: {
+  symbol: string; data: PriceData; onClick: () => void; active: boolean; onValuation?: (symbol: string) => void;
 }) {
   return (
-    <button
-      onClick={onClick}
-      className={`w-full flex items-center justify-between px-3 py-2 text-left transition-colors border-l-2 ${
+    <div
+      className={`w-full flex items-center justify-between px-3 py-2 transition-colors border-l-2 ${
         active
           ? 'bg-zinc-800/40 border-emerald-400'
           : 'border-transparent hover:bg-zinc-800/20'
       }`}
     >
-      <div className="min-w-0">
+      <button onClick={onClick} className="min-w-0 text-left flex-1">
         <div className="text-[11px] text-zinc-300 font-medium truncate">{data.name}</div>
-        <div className="text-[9px] text-zinc-600 uppercase">{symbol}</div>
-      </div>
-      <div className="text-right shrink-0 ml-2">
+        <button
+          onClick={(e) => { e.stopPropagation(); onValuation?.(symbol); }}
+          className="text-[9px] text-zinc-600 uppercase hover:text-zinc-300 transition-colors cursor-pointer"
+          title="Open valuation"
+        >
+          {symbol}
+        </button>
+      </button>
+      <button onClick={onClick} className="text-right shrink-0 ml-2">
         <div className="text-[12px] text-zinc-200 font-medium tabular-nums">
           {data.price ? fmtPrice(data.price) : '—'}
         </div>
         <div className={`text-[10px] tabular-nums ${changeColor(data.change_pct)}`}>
           {fmtPct(data.change_pct)}
         </div>
-      </div>
-    </button>
+      </button>
+    </div>
   );
 }
 
@@ -184,6 +190,7 @@ export default function Dashboard() {
   const [fundsLoaded, setFundsLoaded] = useState(false);
   const [activeSymbol, setActiveSymbol] = useState('GC=F');
   const [chartInterval, setChartInterval] = useState('D');
+  const [selectedValuation, setSelectedValuation] = useState<string | null>(null);
 
   useEffect(() => {
     // Fetch prices (fastest — ~15s)
@@ -277,7 +284,7 @@ export default function Dashboard() {
             <span className="text-[9px] text-zinc-600 uppercase tracking-widest">Commodities</span>
           </div>
           {metalKeys.map((k) => prices[k] && (
-            <PriceRow key={k} symbol={k} data={prices[k]} onClick={() => setActiveSymbol(k)} active={activeSymbol === k} />
+            <PriceRow key={k} symbol={k} data={prices[k]} onClick={() => setActiveSymbol(k)} active={activeSymbol === k} onValuation={setSelectedValuation} />
           ))}
 
           {/* ASX Gold Miners */}
@@ -285,7 +292,7 @@ export default function Dashboard() {
             <span className="text-[9px] text-zinc-600 uppercase tracking-widest">ASX Gold Miners</span>
           </div>
           {minerKeys.map((k) => prices[k] && (
-            <PriceRow key={k} symbol={k} data={prices[k]} onClick={() => setActiveSymbol(k)} active={activeSymbol === k} />
+            <PriceRow key={k} symbol={k} data={prices[k]} onClick={() => setActiveSymbol(k)} active={activeSymbol === k} onValuation={setSelectedValuation} />
           ))}
 
           {/* Energy */}
@@ -293,7 +300,7 @@ export default function Dashboard() {
             <span className="text-[9px] text-cyan-600/70 uppercase tracking-widest">Energy</span>
           </div>
           {energyKeys.map((k) => prices[k] && (
-            <PriceRow key={k} symbol={k} data={prices[k]} onClick={() => setActiveSymbol(k)} active={activeSymbol === k} />
+            <PriceRow key={k} symbol={k} data={prices[k]} onClick={() => setActiveSymbol(k)} active={activeSymbol === k} onValuation={setSelectedValuation} />
           ))}
 
           {/* Critical Minerals */}
@@ -301,7 +308,7 @@ export default function Dashboard() {
             <span className="text-[9px] text-violet-600/70 uppercase tracking-widest">Critical Minerals</span>
           </div>
           {critMinKeys.map((k) => prices[k] && (
-            <PriceRow key={k} symbol={k} data={prices[k]} onClick={() => setActiveSymbol(k)} active={activeSymbol === k} />
+            <PriceRow key={k} symbol={k} data={prices[k]} onClick={() => setActiveSymbol(k)} active={activeSymbol === k} onValuation={setSelectedValuation} />
           ))}
 
           {/* Macro */}
@@ -309,7 +316,7 @@ export default function Dashboard() {
             <span className="text-[9px] text-zinc-600 uppercase tracking-widest">Macro / Indices</span>
           </div>
           {macroKeys.map((k) => prices[k] && (
-            <PriceRow key={k} symbol={k} data={prices[k]} onClick={() => setActiveSymbol(k)} active={activeSymbol === k} />
+            <PriceRow key={k} symbol={k} data={prices[k]} onClick={() => setActiveSymbol(k)} active={activeSymbol === k} onValuation={setSelectedValuation} />
           ))}
         </div>
 
@@ -430,6 +437,14 @@ export default function Dashboard() {
           </div>
         </div>
       </div>
+
+      {/* Valuation Panel */}
+      {selectedValuation && (
+        <ValuationPanel
+          symbol={selectedValuation}
+          onClose={() => setSelectedValuation(null)}
+        />
+      )}
     </div>
   );
 }

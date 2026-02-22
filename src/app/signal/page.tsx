@@ -30,6 +30,7 @@ import type {
   CatalystEvent,
 } from '@/lib/fundamentals-types';
 import { CATALYST_CALENDAR } from '@/lib/fundamentals-types';
+import { ValuationPanel } from '@/components/ValuationPanel';
 
 // ============ TRACK COLOR UTILS ============
 
@@ -258,6 +259,7 @@ function SignalList({
 
 function MoverList({
   movers,
+  onSymbolClick,
 }: {
   movers: {
     symbol: string;
@@ -265,6 +267,7 @@ function MoverList({
     change_pct: number;
     tag?: string;
   }[];
+  onSymbolClick?: (symbol: string) => void;
 }) {
   return (
     <div className="border-b border-zinc-800/50">
@@ -274,9 +277,10 @@ function MoverList({
         </span>
       </div>
       {movers.slice(0, 7).map((m, i) => (
-        <div
+        <button
           key={i}
-          className="flex items-center gap-2 px-4 py-[5px] hover:bg-zinc-800/20 transition-colors"
+          onClick={() => onSymbolClick?.(m.symbol)}
+          className="w-full flex items-center gap-2 px-4 py-[5px] hover:bg-zinc-800/20 transition-colors text-left cursor-pointer"
         >
           <span
             className={`text-[10px] w-3 ${m.change_pct >= 0 ? 'text-emerald-400' : 'text-red-400'}`}
@@ -299,7 +303,7 @@ function MoverList({
               {m.tag}
             </span>
           )}
-        </div>
+        </button>
       ))}
     </div>
   );
@@ -710,6 +714,7 @@ export default function Signal() {
   const [fundamentals, setFundamentals] = useState<FundamentalsDeepData | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [activeTrack, setActiveTrack] = useState<Track>('pm');
+  const [selectedSymbol, setSelectedSymbol] = useState<string | null>(null);
 
   useEffect(() => {
     Promise.all([
@@ -818,7 +823,7 @@ export default function Signal() {
           <SignalList signals={signals} />
 
           {/* Movers */}
-          <MoverList movers={movers} />
+          <MoverList movers={movers} onSymbolClick={setSelectedSymbol} />
 
           {/* ===== NEW SECTIONS BELOW ===== */}
 
@@ -878,6 +883,14 @@ export default function Signal() {
           </div>
         </div>
       </div>
+
+      {/* Valuation Panel */}
+      {selectedSymbol && (
+        <ValuationPanel
+          symbol={selectedSymbol}
+          onClose={() => setSelectedSymbol(null)}
+        />
+      )}
     </div>
   );
 }
