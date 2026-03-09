@@ -6,7 +6,9 @@ import { TickerTape } from '@/components/tv/TickerTape';
 import { AdvancedChart } from '@/components/tv/AdvancedChart';
 import { TopStories } from '@/components/tv/TopStories';
 import { RatioChart } from '@/components/charts/RatioChart';
+import { PriceChart } from '@/components/charts/PriceChart';
 import { ValuationPanel } from '@/components/ValuationPanel';
+import { useIBKRConnection } from '@/lib/ibkr/useIBKRWebSocket';
 
 // ============ TYPES ============
 
@@ -192,6 +194,38 @@ export default function Dashboard() {
   const [chartInterval, setChartInterval] = useState('D');
   const [selectedValuation, setSelectedValuation] = useState<string | null>(null);
 
+  // ─── IBKR Live Instruments ─────────────────────────────────────
+  const { connected: ibkrConnected } = useIBKRConnection();
+
+  // Known IBKR conids for test instruments
+  // AAPL=265598 (NASDAQ), BHP=4907 (NYSE)
+  // GC (Gold futures) conid is resolved via search on mount
+  const [ibkrInstruments, setIbkrInstruments] = useState([
+    { conid: 265598, symbol: 'AAPL', name: 'Apple Inc', color: '#3b82f6' },
+    { conid: 4907, symbol: 'BHP', name: 'BHP Group', color: '#f59e0b' },
+  ]);
+  const [activeIbkr, setActiveIbkr] = useState(265598);
+
+  // Resolve GC (Gold futures) conid on mount
+  useEffect(() => {
+    fetch('/api/ibkr/search?q=GC')
+      .then((r) => r.json())
+      .then((results) => {
+        if (Array.isArray(results) && results.length > 0) {
+          // Find the COMEX gold future
+          const gc = results.find(
+            (r: { symbol?: string; type?: string }) =>
+              r.symbol === 'GC' || r.type?.includes('FUT')
+          ) || results[0];
+          setIbkrInstruments((prev) => [
+            { conid: gc.conid, symbol: gc.symbol || 'GC', name: gc.name || 'Gold Futures', color: '#fbbf24' },
+            ...prev,
+          ]);
+        }
+      })
+      .catch(() => { /* GC search failed — show AAPL + BHP only */ });
+  }, []);
+
   useEffect(() => {
     // Fetch prices (fastest — ~15s)
     fetch('/api/market/prices')
@@ -326,18 +360,57 @@ export default function Dashboard() {
             <AdvancedChart symbol={tvSymbol} interval={chartInterval} />
           </div>
 
-          {/* Bottom: Gold/Silver Ratio */}
-          <div className="h-[160px] shrink-0 border-t border-zinc-800/60">
-            <RatioChart
-              numerator="GC=F"
-              denominator="SI=F"
-              title="Gold / Silver Ratio"
-              start={new Date(Date.now() - 365 * 86400000).toISOString().slice(0, 10)}
-              height={130}
-              lineColor="#ffea00"
-              bandHigh={90}
-              bandLow={65}
-            />
+          {/* Bottom: IBKR Live + Gold/Silver Ratio */}
+          <div className="shrink-0 border-t border-zinc-800/60">
+            {/* IBKR Live Instruments */}
+            <div className="border-b border-zinc-800/40">
+              <div className="flex items-center justify-between px-3 py-1.5">
+                <div className="flex items-center gap-2">
+                  <span className="text-[9px] text-emerald-600/70 uppercase tracking-widest">IBKR Live</span>
+                  <div className={`w-1.5 h-1.5 rounded-full ${ibkrConnected ? 'bg-emerald-500' : 'bg-zinc-600'}`} />
+                </div>
+                <div className="flex items-center gap-1">
+                  {ibkrInstruments.map((inst) => (
+                    <button
+                      key={inst.conid}
+                      onClick={() => setActiveIbkr(inst.conid)}
+                      className={`px-2 py-0.5 text-[9px] uppercase tracking-wider rounded transition-all ${
+                        activeIbkr === inst.conid
+                          ? 'text-zinc-200 bg-zinc-700/50'
+                          : 'text-zinc-600 hover:text-zinc-400'
+                      }`}
+                    >
+                      {inst.symbol}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Chart area */}
+              <div className="h-[260px]">
+                <PriceChart
+                  key={activeIbkr}
+                  conid={activeIbkr}
+                  symbol={ibkrInstruments.find((i) => i.conid === activeIbkr)?.symbol}
+                  color={ibkrInstruments.find((i) => i.conid === activeIbkr)?.color}
+                  height={260}
+                />
+              </div>
+            </div>
+
+            {/* Gold/Silver Ratio (preserved) */}
+            <div className="h-[130px]">
+              <RatioChart
+                numerator="GC=F"
+                denominator="SI=F"
+                title="Gold / Silver Ratio"
+                start={new Date(Date.now() - 365 * 86400000).toISOString().slice(0, 10)}
+                height={100}
+                lineColor="#ffea00"
+                bandHigh={90}
+                bandLow={65}
+              />
+            </div>
           </div>
         </div>
 

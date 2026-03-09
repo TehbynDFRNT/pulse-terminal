@@ -416,52 +416,114 @@ function assessNuclearUtility(d: ValuationData): ValuationAssessment {
 function assessNuclearPreRevenue(d: ValuationData): ValuationAssessment {
   const metrics: AssessmentMetric[] = [];
 
-  // P/B ratio
+  // P/B ratio — dynamic
   if (d.priceToBook !== null) {
     const pb = d.priceToBook;
-    if (pb > 5) { metrics.push({ label: 'Price/Book', value: fmtX(pb), signal: 'bearish', detail: 'Heavy narrative premium over tangible value' }); }
-    else if (pb >= 2) { metrics.push({ label: 'Price/Book', value: fmtX(pb), signal: 'neutral', detail: 'Speculative growth premium' }); }
-    else { metrics.push({ label: 'Price/Book', value: fmtX(pb), signal: 'bullish', detail: 'Closer to tangible value' }); }
+    if (pb > 8) { metrics.push({ label: 'Price/Book', value: fmtX(pb), signal: 'bearish', detail: `Paying ${pb.toFixed(1)}x tangible value — extreme narrative premium` }); }
+    else if (pb > 5) { metrics.push({ label: 'Price/Book', value: fmtX(pb), signal: 'bearish', detail: `${pb.toFixed(1)}x book — heavy narrative premium over tangible value` }); }
+    else if (pb >= 2) { metrics.push({ label: 'Price/Book', value: fmtX(pb), signal: 'neutral', detail: `${pb.toFixed(1)}x book — speculative growth premium` }); }
+    else { metrics.push({ label: 'Price/Book', value: fmtX(pb), signal: 'bullish', detail: `${pb.toFixed(1)}x book — closer to tangible value` }); }
   }
 
-  // Market cap as reference
-  if (d.marketCap > 0) {
-    metrics.push({
-      label: 'Market Cap',
-      value: fmtDollar(d.marketCap),
-      signal: 'neutral',
-      detail: 'Pre-revenue valuation — entirely narrative-driven',
-    });
+  // EV stripped of cash — what market pays for the *business alone*
+  if (d.enterpriseValue > 0 && d.marketCap > 0) {
+    const cash = d.marketCap - d.enterpriseValue; // approx net cash
+    const businessValue = d.enterpriseValue;
+    if (cash > 0) {
+      metrics.push({
+        label: 'Business Value (ex-cash)',
+        value: fmtDollar(businessValue),
+        signal: businessValue > 5_000_000_000 ? 'bearish' : businessValue > 2_000_000_000 ? 'neutral' : 'bullish',
+        detail: `Market pays ${fmtDollar(businessValue)} for the business beyond ${fmtDollar(cash)} cash on hand`,
+      });
+    }
   }
 
+  // Cash burn + runway calculation
   if (d.freeCashFlow !== null && d.freeCashFlow < 0) {
+    const burn = Math.abs(d.freeCashFlow);
+    const cash = d.marketCap > 0 && d.enterpriseValue > 0 ? Math.max(d.marketCap - d.enterpriseValue, 0) : 0;
+    const runwayYears = cash > 0 ? cash / burn : null;
+    
+    let burnSignal: 'bullish' | 'bearish' | 'neutral' = 'neutral';
+    let burnDetail = `${fmtDollar(burn)}/yr burn rate`;
+    
+    if (runwayYears !== null) {
+      if (runwayYears > 5) { burnSignal = 'bullish'; burnDetail = `${runwayYears.toFixed(1)}yr runway at current burn — comfortable`; }
+      else if (runwayYears > 2) { burnSignal = 'neutral'; burnDetail = `${runwayYears.toFixed(1)}yr runway — adequate but watch for dilution`; }
+      else { burnSignal = 'bearish'; burnDetail = `${runwayYears.toFixed(1)}yr runway — will need capital raise soon`; }
+    } else if (burn > 200_000_000) {
+      burnSignal = 'bearish';
+      burnDetail = `${fmtDollar(burn)}/yr burn — heavy for pre-revenue`;
+    }
+
+    metrics.push({ label: 'Cash Burn', value: fmtDollar(burn) + '/yr', signal: burnSignal, detail: burnDetail });
+    if (runwayYears !== null) {
+      metrics.push({ label: 'Cash Runway', value: `${runwayYears.toFixed(1)} years`, signal: burnSignal, detail: runwayYears < 2 ? 'Dilutive raise likely within 18 months' : runwayYears > 5 ? 'Well-funded through development phase' : 'Watch secondary offering risk' });
+    }
+  }
+
+  // Revenue (if any — SMR has some, OKLO has zero)
+  if (d.revenueGrowth !== null) {
     metrics.push({
-      label: 'Cash Burn',
-      value: fmtDollar(Math.abs(d.freeCashFlow)),
-      signal: d.freeCashFlow < -200_000_000 ? 'bearish' : 'neutral',
-      detail: 'Annual burn rate — watch for dilutive raises',
+      label: 'Revenue Growth',
+      value: `${(d.revenueGrowth * 100).toFixed(0)}%`,
+      signal: d.revenueGrowth > 0 ? 'bullish' : 'neutral',
+      detail: d.revenueGrowth > 0 ? 'Some revenue traction — rare for pre-revenue nuclear' : 'Revenue declining — still in development mode',
     });
   }
 
-  metrics.push({
-    label: 'Analyst Dispersion',
-    value: '4-12x',
-    signal: 'neutral',
-    detail: 'Price target dispersion indicates narrative-driven, not fundamental',
-  });
+  // Forward PE (if available, usually deeply negative)
+  if (d.forwardPE !== null && d.forwardPE < 0) {
+    metrics.push({
+      label: 'Forward P/E',
+      value: `${d.forwardPE.toFixed(1)}x`,
+      signal: 'neutral',
+      detail: 'Negative — losses expected to continue near-term',
+    });
+  }
+
+  // Dynamic summary based on actual data
+  const pb = d.priceToBook;
+  const cash = d.marketCap > 0 && d.enterpriseValue > 0 ? Math.max(d.marketCap - d.enterpriseValue, 0) : 0;
+  const burn = d.freeCashFlow !== null && d.freeCashFlow < 0 ? Math.abs(d.freeCashFlow) : null;
+  const runway = burn && cash > 0 ? cash / burn : null;
+
+  let summaryParts: string[] = [];
+  summaryParts.push(`${d.name} is pre-revenue nuclear technology trading at ${fmtDollar(d.marketCap)} market cap`);
+  if (pb !== null) summaryParts.push(`${pb.toFixed(1)}x book value`);
+  if (runway !== null) {
+    if (runway < 3) summaryParts.push(`only ${runway.toFixed(1)} years cash runway — dilution risk elevated`);
+    else if (runway > 8) summaryParts.push(`${runway.toFixed(1)} years cash runway — well-funded through development`);
+    else summaryParts.push(`${runway.toFixed(1)} years cash runway`);
+  }
+  summaryParts.push('No reliable fair value calculable — valued on regulatory milestones and technology promise');
+
+  // Symbol-specific colour
+  const catalysts = d.symbol === 'SMR' ? [
+    'NRC design certification (only SMR company with full certification)',
+    'First customer unit construction start',
+    'Power purchase agreement announcements',
+    'DOE loan program disbursements',
+  ] : d.symbol === 'OKLO' ? [
+    'NRC combined license application resubmission outcome',
+    'First customer agreement execution',
+    'Fuel recycling technology demonstration',
+    'Sam Altman / OpenAI strategic alignment signals',
+  ] : [
+    'NRC design certification progress',
+    'First customer order / power purchase agreement',
+    'Technology demonstration milestone',
+    'Government funding or loan guarantee',
+  ];
 
   return {
     verdict: 'speculative',
     confidence: 'low',
-    summary: `${d.name} is pre-revenue nuclear technology. No reliable fair value calculable. Valued entirely on technology promise and regulatory milestones. Analyst price targets show 4-12x dispersion.`,
+    summary: summaryParts.join('. ') + '.',
     metrics,
     fairValueRange: null,
-    catalysts: [
-      'NRC design certification progress',
-      'First customer order / power purchase agreement',
-      'Technology demonstration milestone',
-      'Government funding or loan guarantee',
-    ],
+    catalysts,
   };
 }
 

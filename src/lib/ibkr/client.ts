@@ -1,6 +1,13 @@
 // ─── IBKR Client Portal API Wrapper ────────────────────────────────
-// Routes all requests through the CP Gateway (localhost:5001)
+// Routes all requests through the CP Gateway (localhost:5050)
 // Falls back to mock data when IBKR_MOCK_MODE=true
+
+// Accept self-signed SSL cert from IBKR CP Gateway (server-side only).
+// Node.js v25 fetch (undici) does not support per-request TLS options,
+// so we disable cert validation process-wide for the gateway connection.
+if (typeof process !== 'undefined' && !process.env.NODE_TLS_REJECT_UNAUTHORIZED) {
+  process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+}
 
 import { conidCache } from './conid-cache';
 import {
@@ -31,7 +38,7 @@ import { WATCHLIST_FIELD_LIST } from './types';
 // ─── Config ────────────────────────────────────────────────────────
 
 function getConfig() {
-  const gatewayUrl = process.env.IBKR_GATEWAY_URL || 'https://localhost:5001';
+  const gatewayUrl = process.env.IBKR_GATEWAY_URL || 'https://localhost:5050';
   const basePath = process.env.IBKR_BASE_PATH || '/v1/api';
   return {
     baseUrl: `${gatewayUrl}${basePath}`,
@@ -53,11 +60,9 @@ async function ibkrFetch<T = unknown>(
     ...options,
     headers: {
       'Content-Type': 'application/json',
+      'User-Agent': 'pulse-terminal/1.0',
       ...options.headers,
     },
-    // Self-signed cert — Next.js server-side
-    // @ts-expect-error -- Node fetch supports this
-    rejectUnauthorized: false,
   });
 
   if (!res.ok) {
@@ -428,7 +433,7 @@ export async function getAccountSummary(): Promise<AccountSummary> {
 export async function getPortfolioPnL(): Promise<PortfolioPnL> {
   if (getConfig().isMock) return mockPortfolioPnL();
 
-  const data = await ibkrFetch<{ upnl: Record<string, { dpl: number; nl: number; upl: number; el: number; mv: number }> }>(
+  const data = await ibkrFetch<{ upnl: Record<string, { dpl: number; nl: number; upl: number; uel?: number; el?: number; mv: number }> }>(
     '/iserver/account/pnl/partitioned'
   );
   const key = Object.keys(data.upnl)[0];
@@ -438,7 +443,7 @@ export async function getPortfolioPnL(): Promise<PortfolioPnL> {
     dailyPnL: pnl.dpl,
     netLiquidity: pnl.nl,
     unrealizedPnL: pnl.upl,
-    excessLiquidity: pnl.el,
+    excessLiquidity: pnl.uel ?? pnl.el ?? 0, // uel is the new field, el is legacy fallback
     marketValue: pnl.mv,
   };
 }

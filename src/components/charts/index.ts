@@ -4,3 +4,6 @@ export { ComparisonChart } from './ComparisonChart';
 export { FredMultiLine } from './FredMultiLine';
 export { InsiderTable } from './InsiderTable';
 export { FundamentalsGrid } from './FundamentalsGrid';
+export { LivePriceChart } from './LivePriceChart';
+export { HistoryChart } from './HistoryChart';
+export { PriceChart } from './PriceChart';

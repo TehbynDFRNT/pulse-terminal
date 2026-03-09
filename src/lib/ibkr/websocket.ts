@@ -32,7 +32,7 @@ export class IBKRWebSocket {
 
   private wsUrl: string;
 
-  constructor(wsUrl = 'wss://localhost:5001/v1/api/ws') {
+  constructor(wsUrl = 'wss://localhost:5050/v1/api/ws') {
     this.wsUrl = wsUrl;
   }
 
@@ -194,7 +194,7 @@ export class IBKRWebSocket {
   }
 
   private handlePnLUpdate(msg: WSMessage) {
-    const args = msg.args as Record<string, { dpl: number; nl: number; upl: number; el: number; mv: number }> | undefined;
+    const args = msg.args as Record<string, { dpl: number; nl: number; upl: number; uel?: number; el?: number; mv: number }> | undefined;
     if (!args) return;
 
     const key = Object.keys(args)[0];
@@ -205,7 +205,7 @@ export class IBKRWebSocket {
       dailyPnL: pnl.dpl,
       netLiquidity: pnl.nl,
       unrealizedPnL: pnl.upl,
-      excessLiquidity: pnl.el,
+      excessLiquidity: pnl.uel ?? pnl.el ?? 0,
       marketValue: pnl.mv,
     });
   }
