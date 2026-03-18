@@ -24,6 +24,8 @@ const TIME_WINDOWS = [
   { label: '1h', secs: 3600 },
 ];
 
+const MAX_LIVE_POINTS = 3000;
+
 export function LivePriceChart({
   conid,
   symbol,
@@ -60,10 +62,12 @@ export function LivePriceChart({
         if (Array.isArray(bars) && bars.length > 0) {
           // bars come as { time, open, high, low, close, volume }
           // Convert to LivelinePoint using close price and unix seconds
-          const points: LivelinePoint[] = bars.map((b: { time: number; close: number }) => ({
-            time: Math.floor(b.time / 1000), // ms → seconds
-            value: b.close,
-          }));
+          const points: LivelinePoint[] = bars
+            .map((b: { time: number; close: number }) => ({
+              time: Math.floor(b.time / 1000), // ms → seconds
+              value: b.close,
+            }))
+            .slice(-MAX_LIVE_POINTS);
           setData(points);
           const lastClose = points[points.length - 1].value;
           setValue(lastClose);
@@ -92,7 +96,19 @@ export function LivePriceChart({
 
     const now = Math.floor(Date.now() / 1000);
     setValue(price);
-    setData((prev) => [...prev, { time: now, value: price }]);
+    setData((prev) => {
+      const lastPoint = prev[prev.length - 1];
+      if (lastPoint?.time === now) {
+        const next = prev.slice();
+        next[next.length - 1] = { time: now, value: price };
+        return next;
+      }
+
+      const next = [...prev, { time: now, value: price }];
+      return next.length > MAX_LIVE_POINTS
+        ? next.slice(next.length - MAX_LIVE_POINTS)
+        : next;
+    });
   }, [streamData]);
 
   const formatPrice = useCallback((v: number) => {

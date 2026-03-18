@@ -137,7 +137,7 @@
 cd ~/ibkr-gateway
 bin/run.sh root/conf.yaml
 
-# Login: open https://localhost:5001 in browser
+# Login: open https://localhost:5050 in browser
 # Enter IBKR credentials + 2FA
 # "Client login succeeds" = ready
 ```
@@ -145,13 +145,13 @@ bin/run.sh root/conf.yaml
 ### Base Configuration
 ```typescript
 // .env.local
-IBKR_GATEWAY_URL=https://localhost:5001
+IBKR_GATEWAY_URL=https://localhost:5050
 IBKR_BASE_PATH=/v1/api
 
 // lib/ibkr/config.ts
 export const IBKR_CONFIG = {
   baseUrl: `${process.env.IBKR_GATEWAY_URL}${process.env.IBKR_BASE_PATH}`,
-  wsUrl: `wss://localhost:5001/v1/api/ws`,
+  wsUrl: `wss://localhost:5050/v1/api/ws`,
   // Self-signed cert — must disable verification in Node
   fetchOptions: {
     // In Node.js, use a custom https agent:

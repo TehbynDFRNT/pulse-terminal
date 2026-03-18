@@ -1,63 +1,57 @@
 'use client';
 
-import { useEffect, useCallback } from 'react';
+import { useMemo, useState } from 'react';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { WatchlistItem } from './WatchlistItem';
+import { MarketStatusInline } from '@/components/market/MarketStatus';
+import { InstrumentListRow } from '@/components/market/InstrumentListRow';
+import { useMarketSchedules } from '@/lib/ibkr/useMarketSchedules';
 import { useWatchlistStore } from '@/lib/store/watchlist';
+import { useGatewayStore } from '@/lib/store/gateway';
+import { useWatchlistSync } from '@/lib/ibkr/useWatchlistSync';
+import { useNow } from '@/lib/useNow';
 
 export function Watchlist() {
+  useWatchlistSync();
   const items = useWatchlistStore((s) => s.items);
-  const setItems = useWatchlistStore((s) => s.setItems);
-  const updatePrices = useWatchlistStore((s) => s.updatePrices);
+  const prices = useWatchlistStore((s) => s.prices);
+  const selectedConid = useWatchlistStore((s) => s.selectedConid);
+  const selectInstrument = useWatchlistStore((s) => s.selectInstrument);
+  const removeItem = useWatchlistStore((s) => s.removeItem);
+  const reorderItems = useWatchlistStore((s) => s.reorderItems);
+  const connected = useGatewayStore((s) => s.connected);
+  const marketDataMode = useGatewayStore((s) => s.marketDataMode);
+  const { schedules } = useMarketSchedules(
+    items.map((item) => ({ conid: item.conid, exchange: item.exchange }))
+  );
+  const nowMs = useNow(30_000, items.length > 0);
+  const [draggedConid, setDraggedConid] = useState<number | null>(null);
+  const [dropTargetConid, setDropTargetConid] = useState<number | null>(null);
 
-  // Load saved watchlist on mount
-  useEffect(() => {
-    fetch('/api/watchlist')
-      .then((r) => r.json())
-      .then((data) => {
-        if (data?.items?.length > 0) {
-          setItems(data.items);
-        }
-      })
-      .catch(() => {});
-  }, [setItems]);
-
-  // Fetch price snapshots for watchlist items
-  const fetchPrices = useCallback(async () => {
-    if (items.length === 0) return;
-    const conids = items.map((i) => i.conid).join(',');
-
-    try {
-      const res = await fetch(`/api/ibkr/marketdata?conids=${conids}`);
-      const data = await res.json();
-      if (Array.isArray(data)) {
-        updatePrices(data);
-      }
-    } catch {
-      // Silently fail — will retry on next interval
-    }
-  }, [items, updatePrices]);
-
-  // Poll for prices every 3 seconds (mock mode)
-  useEffect(() => {
-    fetchPrices();
-    const interval = setInterval(fetchPrices, 3000);
-    return () => clearInterval(interval);
-  }, [fetchPrices]);
-
-  // Persist watchlist changes
-  useEffect(() => {
-    if (items.length === 0) return;
-    // Debounce save
-    const timeout = setTimeout(() => {
-      fetch('/api/watchlist', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(items[items.length - 1]),
-      }).catch(() => {});
-    }, 500);
-    return () => clearTimeout(timeout);
+  const itemIndexByConid = useMemo(() => {
+    const next = new Map<number, number>();
+    items.forEach((item, index) => {
+      next.set(item.conid, index);
+    });
+    return next;
   }, [items]);
+
+  const moveDraggedItem = (targetConid: number) => {
+    if (draggedConid == null || draggedConid === targetConid) return;
+
+    const fromIndex = itemIndexByConid.get(draggedConid);
+    const toIndex = itemIndexByConid.get(targetConid);
+    if (fromIndex == null || toIndex == null || fromIndex === toIndex) return;
+
+    const nextItems = [...items];
+    const [movedItem] = nextItems.splice(fromIndex, 1);
+    nextItems.splice(toIndex, 0, movedItem);
+    reorderItems(nextItems);
+  };
+
+  const clearDragState = () => {
+    setDraggedConid(null);
+    setDropTargetConid(null);
+  };
 
   return (
     <div className="flex flex-col h-full">
@@ -65,9 +59,18 @@ export function Watchlist() {
         <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
           Watchlist
         </h2>
-        <span className="text-[10px] text-muted-foreground">
-          {items.length} instrument{items.length !== 1 ? 's' : ''}
-        </span>
+        <div className="flex items-center gap-2">
+          {connected === true ? (
+            <MarketStatusInline status={marketDataMode} textClassName="text-[10px]" />
+          ) : (
+            <span className="text-[10px] text-muted-foreground">
+              {connected === null ? 'Checking' : 'Offline'}
+            </span>
+          )}
+          <span className="text-[10px] text-muted-foreground">
+            · {items.length} instrument{items.length !== 1 ? 's' : ''}
+          </span>
+        </div>
       </div>
 
       <ScrollArea className="flex-1">
@@ -79,7 +82,39 @@ export function Watchlist() {
         ) : (
           <div className="divide-y divide-border/50">
             {items.map((item) => (
-              <WatchlistItem key={item.conid} item={item} />
+              <InstrumentListRow
+                key={item.conid}
+                item={item}
+                price={prices[item.conid]}
+                schedule={schedules[item.conid]}
+                active={selectedConid === item.conid}
+                onSelect={() => selectInstrument(item.conid)}
+                onRemove={() => removeItem(item.conid)}
+                nowMs={nowMs}
+                draggable
+                dragging={draggedConid === item.conid}
+                dropTarget={dropTargetConid === item.conid && draggedConid !== item.conid}
+                onDragStart={(event) => {
+                  setDraggedConid(item.conid);
+                  setDropTargetConid(item.conid);
+                  event.dataTransfer.effectAllowed = 'move';
+                  event.dataTransfer.setData('text/plain', String(item.conid));
+                }}
+                onDragOver={(event) => {
+                  if (draggedConid == null || draggedConid === item.conid) return;
+                  event.preventDefault();
+                  event.dataTransfer.dropEffect = 'move';
+                  if (dropTargetConid !== item.conid) {
+                    setDropTargetConid(item.conid);
+                  }
+                }}
+                onDrop={(event) => {
+                  event.preventDefault();
+                  moveDraggedItem(item.conid);
+                  clearDragState();
+                }}
+                onDragEnd={clearDragState}
+              />
             ))}
           </div>
         )}

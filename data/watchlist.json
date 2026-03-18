@@ -1,11 +1,61 @@
 {
   "items": [
     {
+      "conid": 14433401,
+      "name": "Australian dollar",
+      "symbol": "AUD.USD",
+      "exchange": "IDEALPRO",
+      "type": "CASH",
+      "allExchanges": []
+    },
+    {
       "conid": 69067924,
-      "symbol": "MARA",
-      "name": "MARA HOLDINGS INC",
-      "exchange": "NASDAQ",
-      "type": "STK"
+      "symbol": "XAUUSD",
+      "name": "London Gold",
+      "exchange": "IBCMDTY",
+      "type": "CMDTY"
+    },
+    {
+      "conid": 77124483,
+      "symbol": "XAGUSD",
+      "name": "London Silver",
+      "exchange": "IBCMDTY",
+      "type": "CMDTY"
+    },
+    {
+      "conid": 339981260,
+      "symbol": "BZ MAY26",
+      "name": "Brent Crude Oil May'26",
+      "exchange": "NYMEX",
+      "type": "FUT"
+    },
+    {
+      "conid": 339981266,
+      "symbol": "BZ JUN26",
+      "name": "Brent Crude Oil Jun'26",
+      "exchange": "NYMEX",
+      "type": "FUT"
+    },
+    {
+      "conid": 339981271,
+      "symbol": "BZ JUL26",
+      "name": "Brent Crude Oil Jul'26",
+      "exchange": "NYMEX",
+      "type": "FUT"
+    },
+    {
+      "conid": 339981272,
+      "symbol": "BZ AUG26",
+      "name": "Brent Crude Oil Aug'26",
+      "exchange": "NYMEX",
+      "type": "FUT"
+    },
+    {
+      "conid": 416904,
+      "symbol": "SPX",
+      "name": "S&P 500 Stock Index",
+      "exchange": "CBOE",
+      "type": "IND"
     }
   ]
 }

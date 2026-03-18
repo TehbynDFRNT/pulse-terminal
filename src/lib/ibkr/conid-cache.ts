@@ -9,6 +9,7 @@ interface CacheEntry<T> {
 }
 
 const CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours — contract info rarely changes
+const SEARCH_CACHE_VERSION = 'v3';
 
 class ConIdCache {
   private contractCache = new Map<number, CacheEntry<ContractInfo>>();
@@ -28,18 +29,22 @@ class ConIdCache {
     this.contractCache.set(conid, { data: info, timestamp: Date.now() });
   }
 
-  getSearch(query: string): SearchResult[] | null {
-    const entry = this.searchCache.get(query.toLowerCase());
+  getSearch(query: string, secType?: string): SearchResult[] | null {
+    const key = buildSearchKey(query, secType);
+    const entry = this.searchCache.get(key);
     if (!entry) return null;
     if (Date.now() - entry.timestamp > CACHE_TTL) {
-      this.searchCache.delete(query.toLowerCase());
+      this.searchCache.delete(key);
       return null;
     }
     return entry.data;
   }
 
-  setSearch(query: string, results: SearchResult[]): void {
-    this.searchCache.set(query.toLowerCase(), { data: results, timestamp: Date.now() });
+  setSearch(query: string, results: SearchResult[], secType?: string): void {
+    this.searchCache.set(buildSearchKey(query, secType), {
+      data: results,
+      timestamp: Date.now(),
+    });
   }
 
   clear(): void {
@@ -49,3 +54,7 @@ class ConIdCache {
 }
 
 export const conidCache = new ConIdCache();
+
+function buildSearchKey(query: string, secType?: string): string {
+  return `${SEARCH_CACHE_VERSION}::${query.toLowerCase()}::${(secType || '').toUpperCase()}`;
+}

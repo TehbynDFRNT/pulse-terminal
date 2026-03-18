@@ -15,6 +15,7 @@
 
 # next.js
 /.next/
+/.next*/
 /out/
 
 # production
@@ -29,6 +30,11 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
+.runtime/
+.claude/
+scripts/__pycache__/
+AGENTS.md
+CLAUDE.md
 
 # env files (can opt-in for committing if needed)
 .env*
@@ -42,3 +48,9 @@ next-env.d.ts
 
 # IBKR Client Portal Gateway
 gateway/
+
+certificates
+
+# local watchlist/runtime snapshots
+data/watchlist-state*.json
+data/*.backup.json

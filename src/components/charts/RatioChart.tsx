@@ -1,8 +1,12 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
-import { createChart, ColorType, CrosshairMode, AreaSeries, LineSeries } from 'lightweight-charts';
-import type { IChartApi, LineData, Time } from 'lightweight-charts';
+// ─── RatioChart ──────────────────────────────────────────────────
+// Fetches ratio data (numerator/denominator) from yahoo-finance2
+// and renders via Liveline with optional band lines.
+
+import { useState, useEffect, useCallback } from 'react';
+import { Liveline } from 'liveline';
+import type { LivelinePoint } from 'liveline';
 
 interface RatioChartProps {
   numerator: string;
@@ -15,6 +19,13 @@ interface RatioChartProps {
   bandLow?: number;
 }
 
+const TIME_WINDOWS = [
+  { label: '3M', secs: 7_776_000 },
+  { label: '6M', secs: 15_552_000 },
+  { label: '1Y', secs: 31_536_000 },
+  { label: '2Y', secs: 63_072_000 },
+];
+
 export function RatioChart({
   numerator,
   denominator,
@@ -25,121 +36,49 @@ export function RatioChart({
   bandHigh,
   bandLow,
 }: RatioChartProps) {
-  const containerRef = useRef<HTMLDivElement>(null);
+  const [data, setData] = useState<LivelinePoint[]>([]);
+  const [value, setValue] = useState(0);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [lastValue, setLastValue] = useState<number | null>(null);
+  const [error, setError] = useState(false);
+  const [windowSecs, setWindowSecs] = useState(31_536_000);
 
   useEffect(() => {
-    if (!containerRef.current) return;
-
-    const chart = createChart(containerRef.current, {
-      layout: {
-        background: { type: ColorType.Solid, color: '#0a0a0a' },
-        textColor: '#6b7280',
-        fontFamily: 'JetBrains Mono, monospace',
-        fontSize: 11,
-      },
-      grid: {
-        vertLines: { color: 'rgba(30, 30, 40, 0.5)' },
-        horzLines: { color: 'rgba(30, 30, 40, 0.5)' },
-      },
-      crosshair: {
-        mode: CrosshairMode.Normal,
-        vertLine: { color: 'rgba(100, 100, 120, 0.4)', style: 2 },
-        horzLine: { color: 'rgba(100, 100, 120, 0.4)', style: 2 },
-      },
-      rightPriceScale: {
-        borderColor: 'rgba(30, 30, 40, 0.8)',
-      },
-      timeScale: {
-        borderColor: 'rgba(30, 30, 40, 0.8)',
-        timeVisible: false,
-      },
-    });
-
-    const series = chart.addSeries(AreaSeries, {
-      lineColor,
-      topColor: lineColor + '30',
-      bottomColor: lineColor + '05',
-      lineWidth: 2,
-    });
-
-    // Band lines
-    let highSeries: ReturnType<typeof chart.addSeries<'Line'>> | null = null;
-    let lowSeries: ReturnType<typeof chart.addSeries<'Line'>> | null = null;
-
-    if (bandHigh !== undefined) {
-      highSeries = chart.addSeries(LineSeries, {
-        color: 'rgba(255, 23, 68, 0.4)',
-        lineWidth: 1,
-        lineStyle: 2, // dashed
-        priceLineVisible: false,
-        lastValueVisible: false,
-        crosshairMarkerVisible: false,
-      });
-    }
-
-    if (bandLow !== undefined) {
-      lowSeries = chart.addSeries(LineSeries, {
-        color: 'rgba(0, 230, 118, 0.4)',
-        lineWidth: 1,
-        lineStyle: 2,
-        priceLineVisible: false,
-        lastValueVisible: false,
-        crosshairMarkerVisible: false,
-      });
-    }
-
-    const handleResize = () => {
-      if (containerRef.current) {
-        chart.applyOptions({ width: containerRef.current.clientWidth });
-      }
-    };
-
-    window.addEventListener('resize', handleResize);
+    setLoading(true);
+    setError(false);
 
     fetch(
       `/api/market/ratio?numerator=${encodeURIComponent(numerator)}&denominator=${encodeURIComponent(denominator)}&start=${start}`
     )
       .then((r) => r.json())
-      .then((data) => {
-        if (data.error) {
-          setError(typeof data.error === 'string' ? data.error : JSON.stringify(data.error));
-        } else if (Array.isArray(data) && data.length > 0) {
-          const lineData: LineData<Time>[] = data.map((d: { time: string; value: number }) => ({
-            time: d.time as Time,
-            value: d.value,
-          }));
-          series.setData(lineData);
-
-          // Draw constant band lines
-          if (highSeries && bandHigh !== undefined) {
-            highSeries.setData(
-              lineData.map((d) => ({ time: d.time, value: bandHigh }))
-            );
-          }
-          if (lowSeries && bandLow !== undefined) {
-            lowSeries.setData(
-              lineData.map((d) => ({ time: d.time, value: bandLow }))
-            );
-          }
-
-          chart.timeScale().fitContent();
-          setLastValue(data[data.length - 1].value);
+      .then((result) => {
+        if (result.error || !Array.isArray(result) || result.length === 0) {
+          setError(true);
+          setLoading(false);
+          return;
         }
+
+        const points: LivelinePoint[] = result.map(
+          (d: { time: string; value: number }) => ({
+            time: new Date(d.time).getTime() / 1000,
+            value: d.value,
+          })
+        );
+        setData(points);
+        setValue(points[points.length - 1].value);
         setLoading(false);
       })
-      .catch((e) => {
-        setError(e.message);
+      .catch(() => {
+        setError(true);
         setLoading(false);
       });
+  }, [numerator, denominator, start]);
 
-    return () => {
-      window.removeEventListener('resize', handleResize);
-      chart.remove();
-    };
-  }, [numerator, denominator, start, lineColor, bandHigh, bandLow]);
+  const formatValue = useCallback((v: number) => v.toFixed(2), []);
+
+  // Build reference lines from bands
+  const referenceLine = bandHigh !== undefined
+    ? { value: bandHigh, label: `High: ${bandHigh}` }
+    : undefined;
 
   return (
     <div className="flex flex-col">
@@ -148,9 +87,9 @@ export function RatioChart({
           <span className="text-xs font-medium text-zinc-300 uppercase tracking-wider">
             {title || `${numerator} / ${denominator}`}
           </span>
-          {lastValue !== null && (
-            <span className="text-sm font-medium text-zinc-200">
-              {lastValue.toFixed(2)}
+          {value > 0 && (
+            <span className="text-sm font-medium text-zinc-200 font-mono tabular-nums">
+              {value.toFixed(2)}
             </span>
           )}
         </div>
@@ -165,11 +104,30 @@ export function RatioChart({
             <span className="text-[10px] text-zinc-600 uppercase tracking-wider">Loading...</span>
           )}
           {error && (
-            <span className="text-[10px] text-red-500 uppercase tracking-wider truncate max-w-48">Error</span>
+            <span className="text-[10px] text-red-500 uppercase tracking-wider">Error</span>
           )}
         </div>
       </div>
-      <div ref={containerRef} style={{ height }} />
+      <div style={{ height }}>
+        <Liveline
+          data={data}
+          value={value}
+          color={lineColor}
+          theme="dark"
+          window={windowSecs}
+          windows={TIME_WINDOWS}
+          onWindowChange={setWindowSecs}
+          windowStyle="text"
+          grid
+          fill
+          scrub
+          showValue
+          loading={loading}
+          emptyText={error ? 'Failed to load data' : 'Loading...'}
+          formatValue={formatValue}
+          referenceLine={referenceLine}
+        />
+      </div>
     </div>
   );
 }

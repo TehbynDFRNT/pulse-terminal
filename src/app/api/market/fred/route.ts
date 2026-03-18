@@ -5,6 +5,13 @@ export async function GET(req: NextRequest) {
   const series = req.nextUrl.searchParams.get('series') || 'DGS10';
   const start = req.nextUrl.searchParams.get('start') || '2020-01-01';
 
+  if (!FRED_API_KEY) {
+    return NextResponse.json(
+      { error: 'FRED_API_KEY is not configured' },
+      { status: 503 },
+    );
+  }
+
   try {
     // Support comma-separated series for batch
     const ids = series.split(',').map(s => s.trim()).filter(Boolean);

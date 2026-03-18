@@ -3,13 +3,21 @@
 
 import type {
   SearchResult,
+  ScannerParams,
+  ScannerRunRequest,
+  ScannerResult,
+  MarketSchedule,
   MarketDataSnapshot,
   Order,
+  AccountTransactionsEnvelope,
   Position,
   AccountSummary,
   PortfolioPnL,
+  CashBalance,
+  PortfolioPerformanceResponse,
   AuthStatus,
 } from './types';
+import { getDisplayPrice } from './display-price';
 
 function randomBetween(min: number, max: number): number {
   return Math.round((min + Math.random() * (max - min)) * 100) / 100;
@@ -30,7 +38,7 @@ export const MOCK_INSTRUMENTS: SearchResult[] = [
   { conid: 76792991, symbol: 'TSLA', name: 'TESLA INC', exchange: 'NASDAQ', type: 'STK' },
   { conid: 4815747, symbol: 'NVDA', name: 'NVIDIA CORP', exchange: 'NASDAQ', type: 'STK' },
   { conid: 15016062, symbol: 'BMA', name: 'BANCO MACRO SA', exchange: 'NYSE', type: 'STK' },
-  { conid: 69067924, symbol: 'MARA', name: 'MARA HOLDINGS INC', exchange: 'NASDAQ', type: 'STK' },
+  { conid: 474219659, symbol: 'MARA', name: 'MARA HOLDINGS INC', exchange: 'NASDAQ', type: 'STK' },
   { conid: 457010218, symbol: 'SI', name: 'SILVER FUTURES', exchange: 'COMEX', type: 'FUT' },
 ];
 
@@ -43,7 +51,7 @@ const BASE_PRICES: Record<number, number> = {
   76792991: 248.90,
   4815747: 875.20,
   15016062: 94.10,
-  69067924: 22.50,
+  474219659: 22.50,
   457010218: 83.20,
 };
 
@@ -54,6 +62,54 @@ export function mockSearch(query: string): SearchResult[] {
       i.symbol.toLowerCase().includes(q) ||
       i.name.toLowerCase().includes(q)
   );
+}
+
+export function mockScannerParams(): ScannerParams {
+  return {
+    instruments: [
+      { code: 'STK', label: 'Stocks', instrumentTypes: ['STK'] },
+      { code: 'CASH', label: 'FX', instrumentTypes: ['CASH'] },
+      { code: 'CRYPTO', label: 'Crypto', instrumentTypes: ['CRYPTO'] },
+    ],
+    locations: [
+      { code: 'STK.US.MAJOR', label: 'US Major Stocks', instrumentTypes: ['STK'] },
+      { code: 'STK.US.MINOR', label: 'US Minor Stocks', instrumentTypes: ['STK'] },
+      { code: 'CASH.IDEALPRO', label: 'IDEALPRO FX', instrumentTypes: ['CASH'] },
+      { code: 'CRYPTO.PAXOS', label: 'PAXOS Crypto', instrumentTypes: ['CRYPTO'] },
+    ],
+    scanTypes: [
+      { code: 'TOP_PERC_GAIN', label: 'Top % Gainers', instrumentTypes: ['STK', 'CRYPTO'] },
+      { code: 'TOP_PERC_LOSE', label: 'Top % Losers', instrumentTypes: ['STK', 'CRYPTO'] },
+      { code: 'MOST_ACTIVE', label: 'Most Active', instrumentTypes: ['STK'] },
+      { code: 'HOT_BY_VOLUME', label: 'Hot by Volume', instrumentTypes: ['CASH'] },
+    ],
+    filters: [
+      { code: 'priceAbove', label: 'Price Above', instrumentTypes: ['STK', 'CRYPTO'], group: 'price', valueType: 'number' },
+      { code: 'priceBelow', label: 'Price Below', instrumentTypes: ['STK', 'CRYPTO'], group: 'price', valueType: 'number' },
+      { code: 'volumeAbove', label: 'Volume Above', instrumentTypes: ['STK'], group: 'volume', valueType: 'number' },
+      { code: 'changePercAbove', label: 'Change % Above', instrumentTypes: ['STK', 'CRYPTO'], group: 'performance', valueType: 'number' },
+      { code: 'changePercBelow', label: 'Change % Below', instrumentTypes: ['STK', 'CRYPTO'], group: 'performance', valueType: 'number' },
+      { code: 'marketCapAbove', label: 'Market Cap Above', instrumentTypes: ['STK'], group: 'fundamental', valueType: 'number' },
+    ],
+  };
+}
+
+export function mockRunScanner(request: ScannerRunRequest): ScannerResult[] {
+  const instruments = MOCK_INSTRUMENTS.filter((instrument) => {
+    if (request.instrument === 'STK') return instrument.type === 'STK';
+    if (request.instrument === 'CASH') return instrument.type === 'CASH';
+    if (request.instrument === 'CRYPTO') return instrument.type === 'CRYPTO';
+    return true;
+  });
+
+  return instruments.slice(0, 10).map((instrument, index) => ({
+    ...instrument,
+    rank: index + 1,
+    scanLabel: request.scanType,
+    scanValue: String(randomBetween(-5, 12)),
+    mdAvailability: 'R',
+    marketDataStatus: 'live',
+  }));
 }
 
 export function mockSnapshot(conids: number[]): MarketDataSnapshot[] {
@@ -67,12 +123,27 @@ export function mockSnapshot(conids: number[]): MarketDataSnapshot[] {
     const { change, changePct } = randomChange(base);
     const dayLow = Math.round((last - Math.abs(change) * 1.5) * 100) / 100;
     const dayHigh = Math.round((last + Math.abs(change) * 1.2) * 100) / 100;
+    const prevClose = Math.round((last - change) * 100) / 100;
+    const display = getDisplayPrice({
+      last,
+      bid,
+      ask,
+      prevClose,
+      change,
+      changePct,
+    });
 
     return {
       conid,
       last,
+      displayPrice: display.displayPrice,
+      displayChange: display.displayChange,
+      displayChangePct: display.displayChangePct,
+      displaySource: display.displaySource,
       symbol: instrument?.symbol || 'UNK',
       companyName: instrument?.name || 'Unknown',
+      mdAvailability: 'R',
+      marketDataStatus: 'live',
       bid,
       bidSize: Math.round(Math.random() * 2000) + 100,
       ask,
@@ -83,10 +154,73 @@ export function mockSnapshot(conids: number[]): MarketDataSnapshot[] {
       dayLow,
       dayHigh,
       open: randomBetween(dayLow, dayHigh),
-      prevClose: Math.round((last - change) * 100) / 100,
+      prevClose,
       updated: Date.now(),
+      hasLiveData: true,
     };
   });
+}
+
+export function mockMarketSchedule(conid: number, exchange?: string): MarketSchedule {
+  const now = new Date();
+  const days: MarketSchedule['days'] = [];
+  const base = new Date(now);
+  base.setUTCHours(0, 0, 0, 0);
+
+  for (let offset = 0; offset < 5; offset += 1) {
+    const day = new Date(base.getTime() + offset * 24 * 60 * 60 * 1000);
+    const dayOfWeek = day.getUTCDay();
+    if (dayOfWeek === 0 || dayOfWeek === 6) continue;
+
+    const date = day.toISOString().slice(0, 10).replace(/-/g, '');
+    const liquidOpen = new Date(day);
+    liquidOpen.setUTCHours(14, 30, 0, 0);
+    const liquidClose = new Date(day);
+    liquidClose.setUTCHours(21, 0, 0, 0);
+    const extendedOpen = new Date(day);
+    extendedOpen.setUTCHours(9, 0, 0, 0);
+    const extendedClose = new Date(day);
+    extendedClose.setUTCHours(1, 0, 0, 0);
+    extendedClose.setUTCDate(extendedClose.getUTCDate() + 1);
+
+    days.push({
+      date,
+      liquidHours: [
+        {
+          opening: liquidOpen.getTime(),
+          closing: liquidClose.getTime(),
+          cancelDailyOrders: true,
+        },
+      ],
+      extendedHours: [
+        {
+          opening: extendedOpen.getTime(),
+          closing: extendedClose.getTime(),
+          cancelDailyOrders: true,
+        },
+      ],
+    });
+  }
+
+  return {
+    conid,
+    exchange: exchange ?? null,
+    timezone: 'US/Eastern',
+    source: 'contract/trading-schedule',
+    fetchedAt: Date.now(),
+    days,
+    state: {
+      phase: 'regular',
+      isOpen: true,
+      isExtendedHours: false,
+      nextChangeAt: days[0]?.liquidHours[0]?.closing ?? null,
+      nextRegularOpen: null,
+      nextRegularClose: days[0]?.liquidHours[0]?.closing ?? null,
+      nextExtendedOpen: null,
+      nextExtendedClose: days[0]?.extendedHours[0]?.closing ?? null,
+      lastRegularClose: null,
+    },
+  };
 }
 
 export function mockOrders(): Order[] {
@@ -124,6 +258,65 @@ export function mockOrders(): Order[] {
       description: 'Buy 100 AAPL @ Market, DAY',
     },
   ];
+}
+
+export function mockTransactionsEnvelope(conid: number): AccountTransactionsEnvelope {
+  const instrument = MOCK_INSTRUMENTS.find((item) => item.conid === conid);
+  return {
+    id: 'getTransactions',
+    currency: 'USD',
+    from: Date.now() - 30 * 24 * 60 * 60 * 1000,
+    to: Date.now(),
+    nd: 30,
+    warning: null,
+    accountId: 'U1234567',
+    conid,
+    symbol: instrument?.symbol || 'UNK',
+    name: instrument?.name || 'Unknown',
+    rpnl: {
+      amount: 125.4,
+      data: [
+        {
+          cur: 'USD',
+          date: '20260310',
+          fxRate: 1,
+          side: 'L',
+          positionSide: 'long',
+          acctid: 'U1234567',
+          amt: 125.4,
+          conid,
+        },
+      ],
+    },
+    transactions: [
+      {
+        cur: 'USD',
+        date: 'Tue Mar 10 00:00:00 EDT 2026',
+        rawDate: '20260310',
+        fxRate: 1,
+        pr: BASE_PRICES[conid] || 100,
+        qty: 100,
+        acctid: 'U1234567',
+        amt: -(BASE_PRICES[conid] || 100) * 100,
+        conid,
+        type: 'Buy',
+        desc: instrument?.name || 'Mock Instrument',
+      },
+      {
+        cur: 'USD',
+        date: 'Tue Mar 11 00:00:00 EDT 2026',
+        rawDate: '20260311',
+        fxRate: 1,
+        pr: (BASE_PRICES[conid] || 100) * 1.0125,
+        qty: -100,
+        acctid: 'U1234567',
+        amt: (BASE_PRICES[conid] || 100) * 101.25,
+        conid,
+        type: 'Sell',
+        desc: instrument?.name || 'Mock Instrument',
+      },
+    ],
+  };
 }
 
 export function mockPositions(): Position[] {
@@ -195,6 +388,81 @@ export function mockPortfolioPnL(): PortfolioPnL {
     unrealizedPnL: 2840.82,
     excessLiquidity: 98200.50,
     marketValue: 52840.82,
+  };
+}
+
+export function mockCashBalances(): { baseCurrency: string; cashBalances: CashBalance[] } {
+  return {
+    baseCurrency: 'AUD',
+    cashBalances: [
+      {
+        currency: 'AUD',
+        cashBalance: 976502.9,
+        settledCash: 976502.9,
+        netLiquidationValue: 977466.3,
+        exchangeRate: 1,
+        interest: 963.41,
+        baseEquivalent: 976502.9,
+        unrealizedPnlBase: 0,
+        realizedPnlBase: 0,
+        entryBaseAmount: null,
+        markToBasePnl: null,
+        isBase: true,
+      },
+      {
+        currency: 'USD',
+        cashBalance: 17705.75,
+        settledCash: 17705.75,
+        netLiquidationValue: 17705.75,
+        exchangeRate: 1.41198,
+        interest: 0,
+        baseEquivalent: 25000,
+        unrealizedPnlBase: 0,
+        realizedPnlBase: 0,
+        entryBaseAmount: 25000,
+        markToBasePnl: 0,
+        isBase: false,
+      },
+    ],
+  };
+}
+
+export function mockPortfolioPerformance(period: string): PortfolioPerformanceResponse {
+  const now = new Date();
+  const points: PortfolioPerformanceResponse['points'] = [];
+  const dayCount =
+    period === '1D'
+      ? 1
+      : period === '7D'
+        ? 7
+        : period === '1M'
+          ? 30
+          : 120;
+  const base = 125_000;
+
+  for (let index = dayCount - 1; index >= 0; index -= 1) {
+    const pointDate = new Date(now);
+    pointDate.setUTCDate(now.getUTCDate() - index);
+    pointDate.setUTCHours(0, 0, 0, 0);
+    points.push({
+      time: pointDate.getTime(),
+      value: Math.round((base + (dayCount - index) * 45 + Math.sin(index / 3) * 220) * 100) / 100,
+    });
+  }
+
+  const latest = points[points.length - 1] ?? null;
+
+  return {
+    accountId: 'U1234567',
+    baseCurrency: 'USD',
+    period,
+    nd: dayCount,
+    warning: null,
+    points,
+    snapshot: {
+      value: latest?.value ?? null,
+      updatedAt: latest?.time ?? null,
+    },
   };
 }
 

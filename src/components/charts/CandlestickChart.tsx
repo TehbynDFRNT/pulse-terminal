@@ -1,112 +1,113 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
-import { createChart, ColorType, CrosshairMode, CandlestickSeries } from 'lightweight-charts';
-import type { IChartApi, ISeriesApi, CandlestickData, Time } from 'lightweight-charts';
+// ─── CandlestickChart ────────────────────────────────────────────
+// Fetches OHLC history from yahoo-finance2 and renders via Liveline.
+// Used on the Analytics page.
+
+import { useState, useEffect, useCallback } from 'react';
+import { Liveline } from 'liveline';
+import type { LivelinePoint } from 'liveline';
+
+interface CandlePoint {
+  time: number;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+}
 
 interface CandlestickChartProps {
   symbol: string;
   title?: string;
   start?: string;
   height?: number;
+  color?: string;
 }
+
+const TIME_WINDOWS = [
+  { label: '1M', secs: 2_592_000 },
+  { label: '3M', secs: 7_776_000 },
+  { label: '6M', secs: 15_552_000 },
+  { label: '1Y', secs: 31_536_000 },
+  { label: '2Y', secs: 63_072_000 },
+];
 
 export function CandlestickChart({
   symbol,
   title,
   start = '2023-01-01',
   height = 400,
+  color = '#00e676',
 }: CandlestickChartProps) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const chartRef = useRef<IChartApi | null>(null);
-  const seriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null);
+  const [lineData, setLineData] = useState<LivelinePoint[]>([]);
+  const [candles, setCandles] = useState<CandlePoint[]>([]);
+  const [value, setValue] = useState(0);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [lastPrice, setLastPrice] = useState<number | null>(null);
+  const [error, setError] = useState(false);
+  const [windowSecs, setWindowSecs] = useState(31_536_000);
 
   useEffect(() => {
-    if (!containerRef.current) return;
+    setLoading(true);
+    setError(false);
 
-    const chart = createChart(containerRef.current, {
-      layout: {
-        background: { type: ColorType.Solid, color: '#0a0a0a' },
-        textColor: '#6b7280',
-        fontFamily: 'JetBrains Mono, monospace',
-        fontSize: 11,
-      },
-      grid: {
-        vertLines: { color: 'rgba(30, 30, 40, 0.5)' },
-        horzLines: { color: 'rgba(30, 30, 40, 0.5)' },
-      },
-      crosshair: {
-        mode: CrosshairMode.Normal,
-        vertLine: { color: 'rgba(100, 100, 120, 0.4)', style: 2 },
-        horzLine: { color: 'rgba(100, 100, 120, 0.4)', style: 2 },
-      },
-      rightPriceScale: {
-        borderColor: 'rgba(30, 30, 40, 0.8)',
-      },
-      timeScale: {
-        borderColor: 'rgba(30, 30, 40, 0.8)',
-        timeVisible: false,
-      },
-    });
-
-    const series = chart.addSeries(CandlestickSeries, {
-      upColor: '#00e676',
-      downColor: '#ff1744',
-      borderUpColor: '#00e676',
-      borderDownColor: '#ff1744',
-      wickUpColor: '#00e676',
-      wickDownColor: '#ff1744',
-    });
-
-    chartRef.current = chart;
-    seriesRef.current = series;
-
-    const handleResize = () => {
-      if (containerRef.current) {
-        chart.applyOptions({ width: containerRef.current.clientWidth });
-      }
-    };
-
-    window.addEventListener('resize', handleResize);
-
-    // Fetch data
     fetch(`/api/market/history?symbol=${encodeURIComponent(symbol)}&start=${start}`)
       .then((r) => r.json())
       .then((data) => {
-        if (data.error) {
-          setError(data.error);
-        } else if (Array.isArray(data) && data.length > 0) {
-          series.setData(data as CandlestickData<Time>[]);
-          chart.timeScale().fitContent();
-          setLastPrice(data[data.length - 1].close);
+        if (data.error || !Array.isArray(data) || data.length === 0) {
+          setError(true);
+          setLoading(false);
+          return;
         }
+
+        // Line data (close prices)
+        const points: LivelinePoint[] = data.map(
+          (d: { time: string; close: number }) => ({
+            time: new Date(d.time).getTime() / 1000,
+            value: d.close,
+          })
+        );
+        setLineData(points);
+
+        // Candle data
+        const ohlc: CandlePoint[] = data.map(
+          (d: { time: string; open: number; high: number; low: number; close: number }) => ({
+            time: new Date(d.time).getTime() / 1000,
+            open: d.open,
+            high: d.high,
+            low: d.low,
+            close: d.close,
+          })
+        );
+        setCandles(ohlc);
+
+        setValue(points[points.length - 1].value);
         setLoading(false);
       })
-      .catch((e) => {
-        setError(e.message);
+      .catch(() => {
+        setError(true);
         setLoading(false);
       });
-
-    return () => {
-      window.removeEventListener('resize', handleResize);
-      chart.remove();
-    };
   }, [symbol, start]);
+
+  const formatPrice = useCallback((v: number) => {
+    if (v >= 1000) return v.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+    if (v >= 10) return v.toFixed(2);
+    return v.toFixed(4);
+  }, []);
+
+  // Infer candle bar width
+  const candleWidth = candles.length >= 2 ? candles[1].time - candles[0].time : 86400;
 
   return (
     <div className="flex flex-col">
-      {/* Header */}
       <div className="flex items-center justify-between px-3 py-2">
         <div className="flex items-center gap-3">
           <span className="text-xs font-medium text-zinc-300 uppercase tracking-wider">
             {title || symbol}
           </span>
-          {lastPrice !== null && (
-            <span className="text-xs text-zinc-400">
-              {lastPrice.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+          {value > 0 && (
+            <span className="text-xs text-zinc-400 font-mono tabular-nums">
+              {formatPrice(value)}
             </span>
           )}
         </div>
@@ -117,8 +118,30 @@ export function CandlestickChart({
           <span className="text-[10px] text-red-500 uppercase tracking-wider">Error</span>
         )}
       </div>
-      {/* Chart */}
-      <div ref={containerRef} style={{ height }} />
+      <div style={{ height }}>
+        <Liveline
+          mode="candle"
+          candles={candles}
+          candleWidth={candleWidth}
+          lineData={lineData}
+          lineValue={value}
+          data={lineData}
+          value={value}
+          color={color}
+          theme="dark"
+          window={windowSecs}
+          windows={TIME_WINDOWS}
+          onWindowChange={setWindowSecs}
+          windowStyle="text"
+          grid
+          badge
+          scrub
+          showValue
+          loading={loading}
+          emptyText={error ? 'Failed to load data' : 'Loading...'}
+          formatValue={formatPrice}
+        />
+      </div>
     </div>
   );
 }

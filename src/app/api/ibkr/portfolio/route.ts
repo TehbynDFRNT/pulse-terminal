@@ -1,5 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getPositions, getAccountSummary, getPortfolioPnL } from '@/lib/ibkr/client';
+import {
+  getAccountSummary,
+  getCashBalances,
+  getPortfolioAccountContext,
+  getPortfolioPnL,
+  getPositions,
+} from '@/lib/ibkr/client';
+
+export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest) {
   const { searchParams } = request.nextUrl;
@@ -21,14 +29,33 @@ export async function GET(request: NextRequest) {
       return NextResponse.json(pnl);
     }
 
+    if (type === 'cash') {
+      const cash = await getCashBalances();
+      return NextResponse.json(cash);
+    }
+
+    if (type === 'account') {
+      const account = await getPortfolioAccountContext();
+      return NextResponse.json(account);
+    }
+
     // Default: return all
-    const [positions, summary, pnl] = await Promise.all([
+    const [account, positions, summary, pnl, cash] = await Promise.all([
+      getPortfolioAccountContext(),
       getPositions(),
       getAccountSummary(),
       getPortfolioPnL(),
+      getCashBalances(),
     ]);
 
-    return NextResponse.json({ positions, summary, pnl });
+    return NextResponse.json({
+      account,
+      positions,
+      summary,
+      pnl,
+      baseCurrency: cash.baseCurrency,
+      cashBalances: cash.cashBalances,
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Portfolio fetch failed';
     return NextResponse.json({ error: message }, { status: 502 });

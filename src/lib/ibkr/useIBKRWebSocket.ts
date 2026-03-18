@@ -1,57 +1,35 @@
 'use client';
 
-// ─── IBKR WebSocket React Hook ────────────────────────────────────
-// Reusable hook for subscribing to real-time IBKR market data,
-// order updates, and P&L via the CP Gateway WebSocket.
-
 import { useEffect, useRef, useSyncExternalStore } from 'react';
 import type { Order, PortfolioPnL } from './types';
-
-// ─── Types ────────────────────────────────────────────────────────
-
-interface WSMessage {
-  topic?: string;
-  conid?: number;
-  server_id?: string;
-  args?: unknown;
-  [key: string]: unknown;
-}
-
-export interface StreamingPrice {
-  conid: number;
-  last: number;
-  bid: number;
-  bidSize: number;
-  ask: number;
-  askSize: number;
-  change: number;
-  changePct: string;
-  volume: number;
-  dayLow: number;
-  dayHigh: number;
-  updated: number;
-}
-
-// ─── Shared WebSocket Singleton ───────────────────────────────────
-
-const WS_URL = 'wss://localhost:5050/v1/api/ws';
-const HEARTBEAT_MS = 55_000;
-const MAX_RECONNECT = 10;
+import type {
+  LiveFeedResponse,
+  StreamingChartBeat,
+  StreamingPrice,
+} from './live-feed-types';
 
 type Listener = () => void;
 
-class IBKRWSManager {
-  private ws: WebSocket | null = null;
-  private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
-  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-  private reconnectAttempts = 0;
-  private subscriptions = new Map<number, string>(); // conid → sub message
-  private listeners = new Set<Listener>();
-  private refCount = 0;
+const POLL_MS = 1_000;
+const POLL_TIMEOUT_MS = 5_000;
+const CONNECTION_STALE_MS = 15_000;
+const LIVE_BEAT_RETENTION_MS = 6 * 60 * 60 * 1000;
+const MAX_BEATS = 20_000;
+const EMPTY_CHART_BEATS: StreamingChartBeat[] = [];
+const EMPTY_ORDERS: Partial<Order>[] = [];
+const EMPTY_MAP = new Map<number, StreamingPrice>();
 
-  // Shared state
+class IBKRLiveFeedManager {
+  private listeners = new Set<Listener>();
+  private pollTimer: ReturnType<typeof setInterval> | null = null;
+  private inFlight = false;
+  private refCount = 0;
+  private subscriptions = new Map<number, number>();
+  private lastSuccessAt = 0;
+
   connected = false;
   prices = new Map<number, StreamingPrice>();
+  chartBeats = new Map<number, StreamingChartBeat[]>();
   orders: Partial<Order>[] = [];
   pnl: PortfolioPnL | null = null;
 
@@ -60,328 +38,316 @@ class IBKRWSManager {
     return () => this.listeners.delete(listener);
   }
 
-  private notify() {
-    for (const fn of this.listeners) fn();
-  }
-
-  // ─── Ref-counted connect/disconnect ─────────────────────────
-
   addRef() {
     this.refCount++;
-    if (this.refCount === 1) this.connect();
+    if (this.refCount === 1) {
+      void this.poll();
+      this.pollTimer = setInterval(() => {
+        void this.poll();
+      }, POLL_MS);
+    }
   }
 
   releaseRef() {
-    this.refCount--;
-    if (this.refCount <= 0) {
-      this.refCount = 0;
-      this.disconnect();
+    this.refCount = Math.max(0, this.refCount - 1);
+    if (this.refCount === 0 && this.pollTimer) {
+      clearInterval(this.pollTimer);
+      this.pollTimer = null;
+      this.inFlight = false;
     }
   }
 
-  // ─── Market Data Subscriptions ──────────────────────────────
-
   subscribeMarketData(conid: number) {
-    const fields = ['31', '84', '85', '86', '88', '82', '83', '7282', '7284', '7293'];
-    const msg = `smd+${conid}+{"fields":${JSON.stringify(fields)}}`;
-    this.subscriptions.set(conid, msg);
-    this.send(msg);
+    this.subscriptions.set(conid, (this.subscriptions.get(conid) ?? 0) + 1);
+    void this.poll();
   }
 
   unsubscribeMarketData(conid: number) {
-    this.subscriptions.delete(conid);
-    this.send(`umd+${conid}+{}`);
+    const count = this.subscriptions.get(conid) ?? 0;
+    if (count <= 1) {
+      this.subscriptions.delete(conid);
+      return;
+    }
+    this.subscriptions.set(conid, count - 1);
   }
 
-  // ─── Connection ─────────────────────────────────────────────
+  private notify() {
+    for (const listener of this.listeners) {
+      listener();
+    }
+  }
 
-  private connect() {
-    if (this.ws?.readyState === WebSocket.OPEN) return;
+  private getTrackedConids(): number[] {
+    return Array.from(this.subscriptions.keys()).sort((left, right) => left - right);
+  }
+
+  private async poll() {
+    if (this.inFlight || this.refCount <= 0) return;
+    this.inFlight = true;
 
     try {
-      this.ws = new WebSocket(WS_URL);
-
-      this.ws.onopen = () => {
-        this.reconnectAttempts = 0;
-        this.connected = true;
-        this.notify();
-
-        this.heartbeatTimer = setInterval(() => this.send('tic'), HEARTBEAT_MS);
-
-        // Subscribe to orders and P&L
-        this.send('sor+{}');
-        this.send('spl+{}');
-
-        // Resubscribe market data
-        for (const msg of this.subscriptions.values()) {
-          this.send(msg);
+      const trackedConids = this.getTrackedConids();
+      const params = new URLSearchParams();
+      if (trackedConids.length > 0) {
+        params.set('conids', trackedConids.join(','));
+        const beatsSince = trackedConids
+          .map((conid) => {
+            const beats = this.chartBeats.get(conid) ?? EMPTY_CHART_BEATS;
+            const since = beats[beats.length - 1]?.timeMs ?? 0;
+            return since > 0 ? `${conid}:${since}` : null;
+          })
+          .filter((value): value is string => value != null);
+        if (beatsSince.length > 0) {
+          params.set('beatsSince', beatsSince.join(','));
         }
-      };
+      }
 
-      this.ws.onmessage = (event) => {
-        try {
-          const msg: WSMessage = JSON.parse(event.data);
-          this.routeMessage(msg);
-        } catch {
-          // Non-JSON (tic response)
+      const search = params.toString();
+      const response = await fetch(
+        `/api/ibkr/live-feed${search ? `?${search}` : ''}`,
+        {
+          cache: 'no-store',
+          signal: AbortSignal.timeout(POLL_TIMEOUT_MS),
         }
-      };
+      );
 
-      this.ws.onclose = () => {
-        this.cleanup();
-        this.connected = false;
+      if (!response.ok) {
+        throw new Error(`live feed ${response.status}`);
+      }
+
+      const payload = (await response.json()) as LiveFeedResponse;
+      const connectionChanged = this.connected !== Boolean(payload.connected);
+      const changed = this.hydrate(payload, trackedConids);
+      this.connected = Boolean(payload.connected);
+      this.lastSuccessAt = Date.now();
+      if (changed || connectionChanged) {
         this.notify();
-        this.scheduleReconnect();
-      };
-
-      this.ws.onerror = () => {
-        // onclose will fire
-      };
+      }
     } catch {
-      this.scheduleReconnect();
+      const nextConnected = Date.now() - this.lastSuccessAt <= CONNECTION_STALE_MS;
+      if (this.connected !== nextConnected) {
+        this.connected = nextConnected;
+        this.notify();
+      }
+    } finally {
+      this.inFlight = false;
     }
   }
 
-  private disconnect() {
-    if (this.reconnectTimer) {
-      clearTimeout(this.reconnectTimer);
-      this.reconnectTimer = null;
+  private hydrate(payload: LiveFeedResponse, trackedConids: number[]): boolean {
+    let changed = false;
+
+    for (const price of payload.prices ?? []) {
+      const previous = this.prices.get(price.conid);
+      if (previous && isSamePrice(previous, price)) {
+        continue;
+      }
+      this.prices.set(price.conid, price);
+      changed = true;
     }
-    this.reconnectAttempts = MAX_RECONNECT; // prevent auto-reconnect
-    this.cleanup();
-    if (this.ws) {
-      this.ws.close();
-      this.ws = null;
+
+    if (trackedConids.length === 0) return changed;
+
+    for (const conid of trackedConids) {
+      const nextBeats = mergeChartBeats(
+        this.chartBeats.get(conid) ?? EMPTY_CHART_BEATS,
+        payload.chartBeats?.[String(conid)] ?? EMPTY_CHART_BEATS
+      );
+      const previous = this.chartBeats.get(conid) ?? EMPTY_CHART_BEATS;
+      if (previous === nextBeats || isSameBeatSeries(previous, nextBeats)) {
+        continue;
+      }
+      this.chartBeats.set(conid, nextBeats);
+      changed = true;
     }
-    this.connected = false;
-    this.notify();
-  }
 
-  private send(data: string) {
-    if (this.ws?.readyState === WebSocket.OPEN) {
-      this.ws.send(data);
-    }
-  }
-
-  private cleanup() {
-    if (this.heartbeatTimer) {
-      clearInterval(this.heartbeatTimer);
-      this.heartbeatTimer = null;
-    }
-  }
-
-  private scheduleReconnect() {
-    if (this.reconnectAttempts >= MAX_RECONNECT) return;
-    if (this.refCount <= 0) return; // don't reconnect if nobody is listening
-
-    const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempts), 30_000);
-    this.reconnectAttempts++;
-    this.reconnectTimer = setTimeout(() => this.connect(), delay);
-  }
-
-  // ─── Message Routing ────────────────────────────────────────
-
-  private routeMessage(msg: WSMessage) {
-    if (msg.topic?.startsWith('smd+')) {
-      this.handleMarketData(msg);
-    } else if (msg.topic?.startsWith('sor')) {
-      this.handleOrderUpdate(msg);
-    } else if (msg.topic?.startsWith('spl')) {
-      this.handlePnLUpdate(msg);
-    }
-  }
-
-  private handleMarketData(msg: WSMessage) {
-    const conid = msg.conid;
-    if (!conid) return;
-
-    const existing = this.prices.get(conid);
-    const updated: StreamingPrice = {
-      conid,
-      last: parseFieldFloat(msg['31'], existing?.last ?? 0),
-      bid: parseFieldFloat(msg['84'], existing?.bid ?? 0),
-      bidSize: parseFieldInt(msg['85'], existing?.bidSize ?? 0),
-      ask: parseFieldFloat(msg['86'], existing?.ask ?? 0),
-      askSize: parseFieldInt(msg['88'], existing?.askSize ?? 0),
-      change: parseChange(String(msg['82'] || ''), existing?.change ?? 0),
-      changePct: msg['83'] != null ? String(msg['83']) : (existing?.changePct ?? ''),
-      volume: parseFieldInt(msg['7282'], existing?.volume ?? 0),
-      dayLow: parseFieldFloat(msg['7284'], existing?.dayLow ?? 0),
-      dayHigh: parseFieldFloat(msg['7293'], existing?.dayHigh ?? 0),
-      updated: Date.now(),
-    };
-
-    this.prices.set(conid, updated);
-    this.notify();
-  }
-
-  private handleOrderUpdate(msg: WSMessage) {
-    const args = msg.args as Array<Record<string, unknown>> | undefined;
-    if (!args) return;
-
-    this.orders = args.map((o) => ({
-      orderId: o.orderId as number,
-      symbol: o.ticker as string,
-      side: o.side as 'BUY' | 'SELL',
-      quantity: o.totalSize as number,
-      filled: o.filledQuantity as number,
-      remaining: o.remainingQuantity as number,
-      status: o.status as Order['status'],
-      orderType: o.orderType as string,
-      price: o.price as string,
-      description: o.orderDesc as string,
-    }));
-    this.notify();
-  }
-
-  private handlePnLUpdate(msg: WSMessage) {
-    const args = msg.args as Record<string, { dpl: number; nl: number; upl: number; uel?: number; el?: number; mv: number }> | undefined;
-    if (!args) return;
-
-    const key = Object.keys(args)[0];
-    if (!key) return;
-    const pnl = args[key];
-
-    this.pnl = {
-      dailyPnL: pnl.dpl,
-      netLiquidity: pnl.nl,
-      unrealizedPnL: pnl.upl,
-      excessLiquidity: pnl.uel ?? pnl.el ?? 0,
-      marketValue: pnl.mv,
-    };
-    this.notify();
+    return changed;
   }
 }
 
-// ─── Helpers ──────────────────────────────────────────────────────
+let manager: IBKRLiveFeedManager | null = null;
 
-function parseFieldFloat(val: unknown, fallback: number): number {
-  if (val == null || val === '') return fallback;
-  const n = parseFloat(String(val));
-  return isNaN(n) ? fallback : n;
-}
-
-function parseFieldInt(val: unknown, fallback: number): number {
-  if (val == null || val === '') return fallback;
-  const n = parseInt(String(val), 10);
-  return isNaN(n) ? fallback : n;
-}
-
-function parseChange(value: string, fallback: number): number {
-  if (!value) return fallback;
-  const cleaned = value.replace(/^[CH]/, '');
-  const n = parseFloat(cleaned);
-  return isNaN(n) ? fallback : n;
-}
-
-// ─── Singleton ────────────────────────────────────────────────────
-
-let manager: IBKRWSManager | null = null;
-
-function getManager(): IBKRWSManager {
+function getManager(): IBKRLiveFeedManager {
   if (!manager) {
-    manager = new IBKRWSManager();
+    manager = new IBKRLiveFeedManager();
   }
   return manager;
 }
 
-// ─── React Hooks ──────────────────────────────────────────────────
+function isSamePrice(left: StreamingPrice, right: StreamingPrice): boolean {
+  return (
+    left.updated === right.updated &&
+    left.chartPrice === right.chartPrice &&
+    left.chartSource === right.chartSource &&
+    left.displayPrice === right.displayPrice &&
+    left.displaySource === right.displaySource &&
+    left.bid === right.bid &&
+    left.ask === right.ask &&
+    left.last === right.last &&
+    left.volume === right.volume &&
+    left.dayLow === right.dayLow &&
+    left.dayHigh === right.dayHigh
+  );
+}
 
-/**
- * Connect to the IBKR WebSocket and auto-manage lifecycle.
- * Returns connection status.
- */
-export function useIBKRConnection(): { connected: boolean } {
+function mergeChartBeats(
+  existing: StreamingChartBeat[],
+  incoming: StreamingChartBeat[]
+): StreamingChartBeat[] {
+  if (incoming.length === 0) {
+    return existing;
+  }
+
+  const merged = new Map<string, StreamingChartBeat>();
+  for (const beat of existing) {
+    if (beat.value > 0) {
+      merged.set(`${beat.timeMs}:${beat.value}:${beat.source}`, beat);
+    }
+  }
+  for (const beat of incoming) {
+    if (beat.value > 0) {
+      merged.set(`${beat.timeMs}:${beat.value}:${beat.source}`, beat);
+    }
+  }
+
+  const cutoff =
+    Math.max(
+      existing[existing.length - 1]?.timeMs ?? 0,
+      incoming[incoming.length - 1]?.timeMs ?? 0
+    ) - LIVE_BEAT_RETENTION_MS;
+
+  const next = Array.from(merged.values())
+    .filter((beat) => beat.timeMs >= cutoff)
+    .sort((left, right) => left.timeMs - right.timeMs);
+
+  return next.length > MAX_BEATS ? next.slice(next.length - MAX_BEATS) : next;
+}
+
+function isSameBeatSeries(
+  left: StreamingChartBeat[],
+  right: StreamingChartBeat[]
+): boolean {
+  if (left.length !== right.length) return false;
+  if (left.length === 0) return true;
+
+  const leftLast = left[left.length - 1]!;
+  const rightLast = right[right.length - 1]!;
+  return (
+    leftLast.timeMs === rightLast.timeMs &&
+    leftLast.value === rightLast.value &&
+    leftLast.source === rightLast.source
+  );
+}
+
+export type { StreamingChartBeat, StreamingPrice };
+
+export function useIBKRConnection(enabled = true): { connected: boolean } {
   const mgr = getManager();
 
   useEffect(() => {
+    if (!enabled) return;
     mgr.addRef();
     return () => mgr.releaseRef();
-  }, [mgr]);
+  }, [enabled, mgr]);
 
   const connected = useSyncExternalStore(
     (cb) => mgr.subscribe(cb),
-    () => mgr.connected,
-    () => false // SSR
+    () => (enabled ? mgr.connected : false),
+    () => false
   );
 
   return { connected };
 }
 
-/**
- * Subscribe to streaming market data for a conid.
- * Returns the latest price data (or null if no data yet).
- */
-export function useIBKRMarketData(conid: number | null): StreamingPrice | null {
+export function useIBKRMarketData(
+  conid: number | null,
+  enabled = true
+): StreamingPrice | null {
   const mgr = getManager();
 
   useEffect(() => {
-    if (conid == null) return;
+    if (!enabled || conid == null) return;
     mgr.addRef();
     mgr.subscribeMarketData(conid);
     return () => {
       mgr.unsubscribeMarketData(conid);
       mgr.releaseRef();
     };
-  }, [conid, mgr]);
+  }, [conid, enabled, mgr]);
 
   return useSyncExternalStore(
     (cb) => mgr.subscribe(cb),
-    () => (conid != null ? mgr.prices.get(conid) ?? null : null),
-    () => null // SSR
+    () => (enabled && conid != null ? mgr.prices.get(conid) ?? null : null),
+    () => null
   );
 }
 
-/**
- * Get streaming order updates.
- */
+export function useIBKRChartBeats(
+  conid: number | null,
+  enabled = true
+): StreamingChartBeat[] {
+  const mgr = getManager();
+
+  useEffect(() => {
+    if (!enabled || conid == null) return;
+    mgr.addRef();
+    mgr.subscribeMarketData(conid);
+    return () => {
+      mgr.unsubscribeMarketData(conid);
+      mgr.releaseRef();
+    };
+  }, [conid, enabled, mgr]);
+
+  return useSyncExternalStore(
+    (cb) => mgr.subscribe(cb),
+    () =>
+      enabled && conid != null
+        ? mgr.chartBeats.get(conid) ?? EMPTY_CHART_BEATS
+        : EMPTY_CHART_BEATS,
+    () => EMPTY_CHART_BEATS
+  );
+}
+
 export function useIBKROrders(): Partial<Order>[] {
   const mgr = getManager();
 
   return useSyncExternalStore(
     (cb) => mgr.subscribe(cb),
     () => mgr.orders,
-    () => [] // SSR
+    () => EMPTY_ORDERS
   );
 }
 
-/**
- * Get streaming P&L.
- */
 export function useIBKRPnL(): PortfolioPnL | null {
   const mgr = getManager();
 
   return useSyncExternalStore(
     (cb) => mgr.subscribe(cb),
     () => mgr.pnl,
-    () => null // SSR
+    () => null
   );
 }
 
-/**
- * Multi-conid market data subscription.
- * Returns a Map of conid → StreamingPrice.
- */
 export function useIBKRMarketDataMulti(conids: number[]): Map<number, StreamingPrice> {
   const mgr = getManager();
   const prevConids = useRef<number[]>([]);
+  const cachedSnapshot = useRef<Map<number, StreamingPrice>>(EMPTY_MAP);
+  const lastUpdated = useRef(0);
 
   useEffect(() => {
-    const prev = new Set(prevConids.current);
+    const previous = new Set(prevConids.current);
     const next = new Set(conids);
 
-    // Subscribe new
-    for (const c of conids) {
-      if (!prev.has(c)) {
+    for (const conid of conids) {
+      if (!previous.has(conid)) {
         mgr.addRef();
-        mgr.subscribeMarketData(c);
+        mgr.subscribeMarketData(conid);
       }
     }
 
-    // Unsubscribe removed
-    for (const c of prevConids.current) {
-      if (!next.has(c)) {
-        mgr.unsubscribeMarketData(c);
+    for (const conid of prevConids.current) {
+      if (!next.has(conid)) {
+        mgr.unsubscribeMarketData(conid);
         mgr.releaseRef();
       }
     }
@@ -389,8 +355,8 @@ export function useIBKRMarketDataMulti(conids: number[]): Map<number, StreamingP
     prevConids.current = conids;
 
     return () => {
-      for (const c of conids) {
-        mgr.unsubscribeMarketData(c);
+      for (const conid of conids) {
+        mgr.unsubscribeMarketData(conid);
         mgr.releaseRef();
       }
       prevConids.current = [];
@@ -401,13 +367,30 @@ export function useIBKRMarketDataMulti(conids: number[]): Map<number, StreamingP
   return useSyncExternalStore(
     (cb) => mgr.subscribe(cb),
     () => {
-      const result = new Map<number, StreamingPrice>();
-      for (const c of conids) {
-        const p = mgr.prices.get(c);
-        if (p) result.set(c, p);
+      let maxUpdated = 0;
+      for (const conid of conids) {
+        const price = mgr.prices.get(conid);
+        if (price && price.updated > maxUpdated) {
+          maxUpdated = price.updated;
+        }
       }
-      return result;
+
+      if (maxUpdated === lastUpdated.current && cachedSnapshot.current !== EMPTY_MAP) {
+        return cachedSnapshot.current;
+      }
+
+      const snapshot = new Map<number, StreamingPrice>();
+      for (const conid of conids) {
+        const price = mgr.prices.get(conid);
+        if (price) {
+          snapshot.set(conid, price);
+        }
+      }
+
+      cachedSnapshot.current = snapshot;
+      lastUpdated.current = maxUpdated;
+      return snapshot;
     },
-    () => new Map() // SSR
+    () => EMPTY_MAP
   );
 }

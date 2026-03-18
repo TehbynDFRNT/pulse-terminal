@@ -10,8 +10,20 @@ process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
 import https from 'node:https';
 import { URL } from 'node:url';
 
+function canonicalizeGatewayUrl(value: string) {
+  try {
+    const url = new URL(value);
+    if (url.hostname === '127.0.0.1' || url.hostname === '::1') {
+      url.hostname = 'localhost';
+    }
+    return url.toString().replace(/\/+$/, '');
+  } catch {
+    return value.replace('127.0.0.1', 'localhost').replace('[::1]', 'localhost').replace(/\/+$/, '');
+  }
+}
+
 const BASE = process.env.IBKR_GATEWAY_URL
-  ? `${process.env.IBKR_GATEWAY_URL}/v1/api`
+  ? `${canonicalizeGatewayUrl(process.env.IBKR_GATEWAY_URL)}/v1/api`
   : 'https://localhost:5050/v1/api';
 
 // ─── Helpers ──────────────────────────────────────────────────────

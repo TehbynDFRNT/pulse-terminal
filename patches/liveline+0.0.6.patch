@@ -1,0 +1,303 @@
+diff --git a/node_modules/liveline/dist/index.cjs b/node_modules/liveline/dist/index.cjs
+index 5adaa70..af31170 100644
+--- a/node_modules/liveline/dist/index.cjs
++++ b/node_modules/liveline/dist/index.cjs
+@@ -830,6 +830,10 @@ function drawTimeAxis(ctx, layout, palette, windowSecs, targetWindowSecs, format
+   if (useLocalDays) {
+     const d = new Date((leftEdge - interval) * 1e3);
+     d.setHours(0, 0, 0, 0);
++    if (interval >= 604800 && interval < 2419200) {
++      const mondayOffset = (d.getDay() + 6) % 7;
++      d.setDate(d.getDate() - mondayOffset);
++    }
+     firstTime = d.getTime() / 1e3;
+   } else {
+     firstTime = Math.ceil((leftEdge - interval) / interval) * interval;
+@@ -1449,7 +1453,7 @@ function drawEmpty(ctx, w, h, pad, palette, alpha = 1, now_ms = 0, skipLine = fa
+ // src/draw/index.ts
+ var SHAKE_DECAY_RATE = 2e-3;
+ var SHAKE_MIN_AMPLITUDE = 0.2;
+-var FADE_EDGE_WIDTH = 40;
++var FADE_EDGE_WIDTH = 0;
+ var CROSSHAIR_FADE_MIN_PX = 5;
+ function createShakeState() {
+   return { amplitude: 0 };
+@@ -1510,11 +1514,6 @@ function drawFrame(ctx, layout, palette, opts) {
+   if (pts && pts.length > 0) {
+     const lastPt = pts[pts.length - 1];
+     let dotScrub = opts.scrubAmount;
+-    if (opts.hoverX !== null && dotScrub > 0) {
+-      const distToLive = lastPt[0] - opts.hoverX;
+-      const fadeStart = Math.min(80, layout.chartW * 0.3);
+-      dotScrub = distToLive < CROSSHAIR_FADE_MIN_PX ? 0 : distToLive >= fadeStart ? opts.scrubAmount : (distToLive - CROSSHAIR_FADE_MIN_PX) / (fadeStart - CROSSHAIR_FADE_MIN_PX) * opts.scrubAmount;
+-    }
+     const dotAlpha = reveal < 0.3 ? 0 : (reveal - 0.3) / 0.7;
+     const showPulse = opts.showPulse && reveal > 0.6 && pause < 0.5;
+     if (dotAlpha > 0.01) {
+@@ -1570,9 +1569,7 @@ function drawFrame(ctx, layout, palette, opts) {
+   ctx.restore();
+   if (opts.hoverX !== null && opts.hoverValue !== null && opts.hoverTime !== null && pts && pts.length > 0) {
+     const lastPt = pts[pts.length - 1];
+-    const distToLive = lastPt[0] - opts.hoverX;
+-    const fadeStart = Math.min(80, layout.chartW * 0.3);
+-    const scrubOpacity = distToLive < CROSSHAIR_FADE_MIN_PX ? 0 : distToLive >= fadeStart ? opts.scrubAmount : (distToLive - CROSSHAIR_FADE_MIN_PX) / (fadeStart - CROSSHAIR_FADE_MIN_PX) * opts.scrubAmount;
++    const scrubOpacity = opts.scrubAmount;
+     if (scrubOpacity > 0.01) {
+       drawCrosshair(
+         ctx,
+@@ -1692,9 +1689,7 @@ function drawMultiFrame(ctx, layout, opts) {
+       const lastX = entry.pts[entry.pts.length - 1][0];
+       if (lastX > maxLiveDotX) maxLiveDotX = lastX;
+     }
+-    const distToLive = maxLiveDotX - opts.hoverX;
+-    const fadeStart = Math.min(80, layout.chartW * 0.3);
+-    const scrubOpacity = distToLive < CROSSHAIR_FADE_MIN_PX ? 0 : distToLive >= fadeStart ? opts.scrubAmount : (distToLive - CROSSHAIR_FADE_MIN_PX) / (fadeStart - CROSSHAIR_FADE_MIN_PX) * opts.scrubAmount;
++    const scrubOpacity = opts.scrubAmount;
+     if (scrubOpacity > 0.01) {
+       drawMultiCrosshair(
+         ctx,
+@@ -2055,7 +2050,19 @@ function updateWindowTransition(cfg, wt, displayWindow, displayMin, displayMax,
+   }
+   return { windowSecs: resultWindow, windowTransProgress };
+ }
+-function updateRange(computedRange, rangeInited, targetMin, targetMax, displayMin, displayMax, isTransitioning, windowTransProgress, wt, adaptiveSpeed, chartH, dt) {
++function updateRange(computedRange, rangeInited, targetMin, targetMax, displayMin, displayMax, isTransitioning, windowTransProgress, wt, adaptiveSpeed, chartH, dt, rangeLock) {
++  if (rangeLock) {
++    return {
++      minVal: rangeLock.min,
++      maxVal: rangeLock.max,
++      valRange: rangeLock.max - rangeLock.min || 1e-3,
++      targetMin: rangeLock.min,
++      targetMax: rangeLock.max,
++      displayMin: rangeLock.min,
++      displayMax: rangeLock.max,
++      rangeInited: true
++    };
++  }
+   if (!rangeInited) {
+     return {
+       minVal: computedRange.min,
+@@ -2659,7 +2666,7 @@ function useLivelineEngine(canvasRef, containerRef, config) {
+     }
+     if (isCandle) {
+       if (hasData) frozenNowRef.current = Date.now() / 1e3 - timeDebtRef.current;
+-      const now = hasData || chartReveal < 5e-3 ? Date.now() / 1e3 - timeDebtRef.current : frozenNowRef.current;
++      const now = cfg.timeLock?.time ?? (hasData || chartReveal < 5e-3 ? Date.now() / 1e3 - timeDebtRef.current : frozenNowRef.current);
+       const rawLive = pausedCandlesRef.current ? pausedLiveRef.current ?? void 0 : cfg.liveCandle;
+       let effectiveLineData = pausedLineDataRef.current ?? cfg.lineData;
+       let effectiveLineValue = pausedLineValueRef.current ?? cfg.lineValue;
+@@ -3215,7 +3222,8 @@ function useLivelineEngine(canvasRef, containerRef, config) {
+         transition,
+         adaptiveSpeed,
+         chartH,
+-        pausedDt
++        pausedDt,
++        cfg.rangeLock
+       );
+       rangeInitedRef.current = rangeResult.rangeInited;
+       targetMinRef.current = rangeResult.targetMin;
+@@ -3330,7 +3338,7 @@ function useLivelineEngine(canvasRef, containerRef, config) {
+       const buffer = needsArrowRoom ? Math.max(WINDOW_BUFFER, 37 / Math.max(chartW, 1)) : WINDOW_BUFFER;
+       const transition = windowTransitionRef.current;
+       if (hasData) frozenNowRef.current = Date.now() / 1e3 - timeDebtRef.current;
+-      const now = useStash ? frozenNowRef.current : Date.now() / 1e3 - timeDebtRef.current;
++      const now = cfg.timeLock?.time ?? (useStash ? frozenNowRef.current : Date.now() / 1e3 - timeDebtRef.current);
+       const windowResult = updateWindowTransition(
+         cfg,
+         transition,
+@@ -3375,7 +3383,8 @@ function useLivelineEngine(canvasRef, containerRef, config) {
+         transition,
+         adaptiveSpeed,
+         chartH,
+-        pausedDt
++        pausedDt,
++        cfg.rangeLock
+       );
+       rangeInitedRef.current = rangeResult.rangeInited;
+       targetMinRef.current = rangeResult.targetMin;
+@@ -3539,6 +3548,8 @@ function Liveline({
+   tooltipOutline = true,
+   orderbook,
+   referenceLine,
++  rangeLock,
++  timeLock,
+   formatValue = defaultFormatValue,
+   formatTime = defaultFormatTime,
+   lerpSpeed = 0.08,
+@@ -3674,6 +3685,8 @@ function Liveline({
+     valueMomentumColor,
+     valueDisplayRef: showValue ? valueDisplayRef : void 0,
+     orderbookData: orderbook,
++    rangeLock,
++    timeLock,
+     loading,
+     paused,
+     emptyText,
+diff --git a/node_modules/liveline/dist/index.d.ts b/node_modules/liveline/dist/index.d.ts
+index c5c3f60..cf2700f 100644
+--- a/node_modules/liveline/dist/index.d.ts
++++ b/node_modules/liveline/dist/index.d.ts
+@@ -13,6 +13,13 @@ interface ReferenceLine {
+     value: number;
+     label?: string;
+ }
++interface RangeLock {
++    min: number;
++    max: number;
++}
++interface TimeLock {
++    time: number;
++}
+ interface HoverPoint {
+     time: number;
+     value: number;
+@@ -74,6 +81,8 @@ interface LivelineProps {
+     tooltipOutline?: boolean;
+     orderbook?: OrderbookData;
+     referenceLine?: ReferenceLine;
++    rangeLock?: RangeLock;
++    timeLock?: TimeLock;
+     formatValue?: (v: number) => string;
+     formatTime?: (t: number) => string;
+     lerpSpeed?: number;
+@@ -128,4 +137,4 @@ interface LivelineTransitionProps {
+  */
+ declare function LivelineTransition({ active, children, duration, className, style, }: LivelineTransitionProps): react_jsx_runtime.JSX.Element;
+ 
+-export { type BadgeVariant, type CandlePoint, type DegenOptions, type HoverPoint, Liveline, type LivelinePoint, type LivelineProps, type LivelineSeries, LivelineTransition, type LivelineTransitionProps, type Momentum, type OrderbookData, type Padding, type ReferenceLine, type ThemeMode, type WindowOption, type WindowStyle };
++export { type BadgeVariant, type CandlePoint, type DegenOptions, type HoverPoint, Liveline, type LivelinePoint, type LivelineProps, type LivelineSeries, LivelineTransition, type LivelineTransitionProps, type Momentum, type OrderbookData, type Padding, type RangeLock, type ReferenceLine, type ThemeMode, type TimeLock, type WindowOption, type WindowStyle };
+diff --git a/node_modules/liveline/dist/index.js b/node_modules/liveline/dist/index.js
+index 78ec748..d050aeb 100644
+--- a/node_modules/liveline/dist/index.js
++++ b/node_modules/liveline/dist/index.js
+@@ -803,6 +803,10 @@ function drawTimeAxis(ctx, layout, palette, windowSecs, targetWindowSecs, format
+   if (useLocalDays) {
+     const d = new Date((leftEdge - interval) * 1e3);
+     d.setHours(0, 0, 0, 0);
++    if (interval >= 604800 && interval < 2419200) {
++      const mondayOffset = (d.getDay() + 6) % 7;
++      d.setDate(d.getDate() - mondayOffset);
++    }
+     firstTime = d.getTime() / 1e3;
+   } else {
+     firstTime = Math.ceil((leftEdge - interval) / interval) * interval;
+@@ -1422,7 +1426,7 @@ function drawEmpty(ctx, w, h, pad, palette, alpha = 1, now_ms = 0, skipLine = fa
+ // src/draw/index.ts
+ var SHAKE_DECAY_RATE = 2e-3;
+ var SHAKE_MIN_AMPLITUDE = 0.2;
+-var FADE_EDGE_WIDTH = 40;
++var FADE_EDGE_WIDTH = 0;
+ var CROSSHAIR_FADE_MIN_PX = 5;
+ function createShakeState() {
+   return { amplitude: 0 };
+@@ -1483,11 +1487,6 @@ function drawFrame(ctx, layout, palette, opts) {
+   if (pts && pts.length > 0) {
+     const lastPt = pts[pts.length - 1];
+     let dotScrub = opts.scrubAmount;
+-    if (opts.hoverX !== null && dotScrub > 0) {
+-      const distToLive = lastPt[0] - opts.hoverX;
+-      const fadeStart = Math.min(80, layout.chartW * 0.3);
+-      dotScrub = distToLive < CROSSHAIR_FADE_MIN_PX ? 0 : distToLive >= fadeStart ? opts.scrubAmount : (distToLive - CROSSHAIR_FADE_MIN_PX) / (fadeStart - CROSSHAIR_FADE_MIN_PX) * opts.scrubAmount;
+-    }
+     const dotAlpha = reveal < 0.3 ? 0 : (reveal - 0.3) / 0.7;
+     const showPulse = opts.showPulse && reveal > 0.6 && pause < 0.5;
+     if (dotAlpha > 0.01) {
+@@ -1543,9 +1542,7 @@ function drawFrame(ctx, layout, palette, opts) {
+   ctx.restore();
+   if (opts.hoverX !== null && opts.hoverValue !== null && opts.hoverTime !== null && pts && pts.length > 0) {
+     const lastPt = pts[pts.length - 1];
+-    const distToLive = lastPt[0] - opts.hoverX;
+-    const fadeStart = Math.min(80, layout.chartW * 0.3);
+-    const scrubOpacity = distToLive < CROSSHAIR_FADE_MIN_PX ? 0 : distToLive >= fadeStart ? opts.scrubAmount : (distToLive - CROSSHAIR_FADE_MIN_PX) / (fadeStart - CROSSHAIR_FADE_MIN_PX) * opts.scrubAmount;
++    const scrubOpacity = opts.scrubAmount;
+     if (scrubOpacity > 0.01) {
+       drawCrosshair(
+         ctx,
+@@ -1665,9 +1662,7 @@ function drawMultiFrame(ctx, layout, opts) {
+       const lastX = entry.pts[entry.pts.length - 1][0];
+       if (lastX > maxLiveDotX) maxLiveDotX = lastX;
+     }
+-    const distToLive = maxLiveDotX - opts.hoverX;
+-    const fadeStart = Math.min(80, layout.chartW * 0.3);
+-    const scrubOpacity = distToLive < CROSSHAIR_FADE_MIN_PX ? 0 : distToLive >= fadeStart ? opts.scrubAmount : (distToLive - CROSSHAIR_FADE_MIN_PX) / (fadeStart - CROSSHAIR_FADE_MIN_PX) * opts.scrubAmount;
++    const scrubOpacity = opts.scrubAmount;
+     if (scrubOpacity > 0.01) {
+       drawMultiCrosshair(
+         ctx,
+@@ -2028,7 +2023,19 @@ function updateWindowTransition(cfg, wt, displayWindow, displayMin, displayMax,
+   }
+   return { windowSecs: resultWindow, windowTransProgress };
+ }
+-function updateRange(computedRange, rangeInited, targetMin, targetMax, displayMin, displayMax, isTransitioning, windowTransProgress, wt, adaptiveSpeed, chartH, dt) {
++function updateRange(computedRange, rangeInited, targetMin, targetMax, displayMin, displayMax, isTransitioning, windowTransProgress, wt, adaptiveSpeed, chartH, dt, rangeLock) {
++  if (rangeLock) {
++    return {
++      minVal: rangeLock.min,
++      maxVal: rangeLock.max,
++      valRange: rangeLock.max - rangeLock.min || 1e-3,
++      targetMin: rangeLock.min,
++      targetMax: rangeLock.max,
++      displayMin: rangeLock.min,
++      displayMax: rangeLock.max,
++      rangeInited: true
++    };
++  }
+   if (!rangeInited) {
+     return {
+       minVal: computedRange.min,
+@@ -2632,7 +2639,7 @@ function useLivelineEngine(canvasRef, containerRef, config) {
+     }
+     if (isCandle) {
+       if (hasData) frozenNowRef.current = Date.now() / 1e3 - timeDebtRef.current;
+-      const now = hasData || chartReveal < 5e-3 ? Date.now() / 1e3 - timeDebtRef.current : frozenNowRef.current;
++      const now = cfg.timeLock?.time ?? (hasData || chartReveal < 5e-3 ? Date.now() / 1e3 - timeDebtRef.current : frozenNowRef.current);
+       const rawLive = pausedCandlesRef.current ? pausedLiveRef.current ?? void 0 : cfg.liveCandle;
+       let effectiveLineData = pausedLineDataRef.current ?? cfg.lineData;
+       let effectiveLineValue = pausedLineValueRef.current ?? cfg.lineValue;
+@@ -3188,7 +3195,8 @@ function useLivelineEngine(canvasRef, containerRef, config) {
+         transition,
+         adaptiveSpeed,
+         chartH,
+-        pausedDt
++        pausedDt,
++        cfg.rangeLock
+       );
+       rangeInitedRef.current = rangeResult.rangeInited;
+       targetMinRef.current = rangeResult.targetMin;
+@@ -3303,7 +3311,7 @@ function useLivelineEngine(canvasRef, containerRef, config) {
+       const buffer = needsArrowRoom ? Math.max(WINDOW_BUFFER, 37 / Math.max(chartW, 1)) : WINDOW_BUFFER;
+       const transition = windowTransitionRef.current;
+       if (hasData) frozenNowRef.current = Date.now() / 1e3 - timeDebtRef.current;
+-      const now = useStash ? frozenNowRef.current : Date.now() / 1e3 - timeDebtRef.current;
++      const now = cfg.timeLock?.time ?? (useStash ? frozenNowRef.current : Date.now() / 1e3 - timeDebtRef.current);
+       const windowResult = updateWindowTransition(
+         cfg,
+         transition,
+@@ -3348,7 +3356,8 @@ function useLivelineEngine(canvasRef, containerRef, config) {
+         transition,
+         adaptiveSpeed,
+         chartH,
+-        pausedDt
++        pausedDt,
++        cfg.rangeLock
+       );
+       rangeInitedRef.current = rangeResult.rangeInited;
+       targetMinRef.current = rangeResult.targetMin;
+@@ -3512,6 +3521,8 @@ function Liveline({
+   tooltipOutline = true,
+   orderbook,
+   referenceLine,
++  rangeLock,
++  timeLock,
+   formatValue = defaultFormatValue,
+   formatTime = defaultFormatTime,
+   lerpSpeed = 0.08,
+@@ -3647,6 +3658,8 @@ function Liveline({
+     valueMomentumColor,
+     valueDisplayRef: showValue ? valueDisplayRef : void 0,
+     orderbookData: orderbook,
++    rangeLock,
++    timeLock,
+     loading,
+     paused,
+     emptyText,

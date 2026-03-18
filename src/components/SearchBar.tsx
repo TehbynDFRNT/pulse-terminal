@@ -2,9 +2,12 @@
 
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { Search, Plus, X } from 'lucide-react';
+import { ScreenerDialog } from '@/components/ScreenerDialog';
 import { Input } from '@/components/ui/input';
+import { normalizeInstrument } from '@/lib/ibkr/normalize-instrument';
 import { useWatchlistStore } from '@/lib/store/watchlist';
-import type { SearchResult } from '@/lib/ibkr/types';
+import { searchInstruments, type SearchResult } from '@/lib/ibkr/gateway-client';
+import { sanitizeInstrumentSearchQuery } from '@/lib/ibkr/search-query';
 
 export function SearchBar() {
   const [query, setQuery] = useState('');
@@ -19,7 +22,8 @@ export function SearchBar() {
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   const search = useCallback(async (q: string) => {
-    if (q.length < 1) {
+    const sanitized = sanitizeInstrumentSearchQuery(q);
+    if (!sanitized) {
       setResults([]);
       setIsOpen(false);
       return;
@@ -27,9 +31,8 @@ export function SearchBar() {
 
     setIsLoading(true);
     try {
-      const res = await fetch(`/api/ibkr/search?q=${encodeURIComponent(q)}`);
-      const data = (await res.json()) as SearchResult[];
-      setResults(Array.isArray(data) ? data : []);
+      const data = await searchInstruments(sanitized);
+      setResults(data);
       setIsOpen(true);
       setSelectedIndex(0);
     } catch {
@@ -46,14 +49,15 @@ export function SearchBar() {
   };
 
   const handleAdd = (result: SearchResult) => {
-    addItem({
+    const normalized = normalizeInstrument({
       conid: result.conid,
       symbol: result.symbol,
       name: result.name,
       exchange: result.exchange,
       type: result.type,
     });
-    selectInstrument(result.conid);
+    addItem(normalized);
+    selectInstrument(normalized.conid);
     setQuery('');
     setIsOpen(false);
     setResults([]);
@@ -106,76 +110,99 @@ export function SearchBar() {
   }, []);
 
   return (
-    <div className="relative flex-1 max-w-xl">
-      <div className="relative">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-        <Input
-          ref={inputRef}
-          value={query}
-          onChange={(e) => handleInput(e.target.value)}
-          onKeyDown={handleKeyDown}
-          onFocus={() => results.length > 0 && setIsOpen(true)}
-          placeholder="Search instruments... (press /)"
-          className="pl-9 pr-8 bg-secondary border-border font-mono text-sm h-9"
-        />
-        {query && (
-          <button
-            onClick={() => {
-              setQuery('');
-              setIsOpen(false);
-              setResults([]);
-            }}
-            className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+    <div className="flex w-full items-start gap-2">
+      <div className="relative min-w-0 flex-1">
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input
+            ref={inputRef}
+            value={query}
+            onChange={(e) => handleInput(e.target.value)}
+            onKeyDown={handleKeyDown}
+            onFocus={() => results.length > 0 && setIsOpen(true)}
+            placeholder=""
+            className="pl-9 pr-8 bg-secondary border-border font-mono text-sm h-9"
+          />
+          {query && (
+            <button
+              onClick={() => {
+                setQuery('');
+                setIsOpen(false);
+                setResults([]);
+              }}
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          )}
+        </div>
+
+        {isOpen && (
+          <div
+            ref={dropdownRef}
+            className="absolute left-0 top-full z-50 mt-1 min-w-full w-max max-w-[calc(100vw-1rem)] overflow-hidden rounded-md border border-border bg-card shadow-xl"
           >
-            <X className="h-4 w-4" />
-          </button>
+            {isLoading && (
+              <div className="px-4 py-3 text-sm text-muted-foreground">
+                Searching...
+              </div>
+            )}
+            {!isLoading && results.length === 0 && query.length > 0 && (
+              <div className="px-4 py-3 text-sm text-muted-foreground">
+                No results for &quot;{query}&quot;
+              </div>
+            )}
+            <div className="max-h-80 overflow-auto">
+              {results.map((result, i) => (
+                <button
+                  key={`${result.conid}-${result.symbol || result.name}-${result.exchange}-${i}`}
+                  onClick={() => handleAdd(result)}
+                  className={`flex w-full items-center justify-between gap-3 px-4 py-2.5 text-left transition-colors hover:bg-accent ${
+                    i === selectedIndex ? 'bg-accent' : ''
+                  }`}
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                      <span
+                        className="font-mono text-sm font-semibold"
+                        title={
+                          result.contractDisplay && result.underlyingSymbol
+                            ? `${result.name} · ${result.symbol}`
+                            : result.name
+                        }
+                      >
+                        {result.underlyingSymbol || result.symbol}
+                      </span>
+                      {result.contractDisplay && (
+                        <span className="rounded bg-emerald-500/10 px-1.5 py-0.5 text-xs text-emerald-600 dark:text-emerald-400">
+                          {result.contractDisplay}
+                        </span>
+                      )}
+                      <span className="rounded bg-secondary px-1.5 py-0.5 text-xs text-muted-foreground">
+                        {result.type}
+                      </span>
+                      <span className="text-xs text-muted-foreground">
+                        {result.exchange}
+                      </span>
+                    </div>
+                    <div className="mt-0.5 truncate text-xs text-muted-foreground">
+                      {result.contractDisplay && result.underlyingSymbol
+                        ? `${result.name} · ${result.symbol}`
+                        : result.name}
+                    </div>
+                  </div>
+                  <Plus className="ml-2 h-4 w-4 shrink-0 text-muted-foreground" />
+                </button>
+              ))}
+            </div>
+          </div>
         )}
       </div>
 
-      {isOpen && (
-        <div
-          ref={dropdownRef}
-          className="absolute top-full mt-1 w-full bg-card border border-border rounded-md shadow-xl z-50 max-h-80 overflow-auto"
-        >
-          {isLoading && (
-            <div className="px-4 py-3 text-sm text-muted-foreground">
-              Searching...
-            </div>
-          )}
-          {!isLoading && results.length === 0 && query.length > 0 && (
-            <div className="px-4 py-3 text-sm text-muted-foreground">
-              No results for &quot;{query}&quot;
-            </div>
-          )}
-          {results.map((result, i) => (
-            <button
-              key={result.conid}
-              onClick={() => handleAdd(result)}
-              className={`w-full flex items-center justify-between px-4 py-2.5 text-left hover:bg-accent transition-colors ${
-                i === selectedIndex ? 'bg-accent' : ''
-              }`}
-            >
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2">
-                  <span className="font-mono font-semibold text-sm">
-                    {result.symbol}
-                  </span>
-                  <span className="text-xs text-muted-foreground px-1.5 py-0.5 bg-secondary rounded">
-                    {result.type}
-                  </span>
-                  <span className="text-xs text-muted-foreground">
-                    {result.exchange}
-                  </span>
-                </div>
-                <div className="text-xs text-muted-foreground truncate mt-0.5">
-                  {result.name}
-                </div>
-              </div>
-              <Plus className="h-4 w-4 text-muted-foreground ml-2 flex-shrink-0" />
-            </button>
-          ))}
-        </div>
-      )}
+      <ScreenerDialog
+        onAdd={handleAdd}
+        triggerClassName="h-9 border-border bg-secondary px-3 font-mono text-xs uppercase tracking-wider text-muted-foreground hover:text-foreground"
+      />
     </div>
   );
 }

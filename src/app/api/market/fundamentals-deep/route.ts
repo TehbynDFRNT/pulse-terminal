@@ -28,6 +28,10 @@ const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (
 // ============ FETCHERS ============
 
 async function fetchFredUranium(): Promise<{ price: number | null; date: string | null }> {
+  if (!FRED_API_KEY) {
+    return { price: null, date: null };
+  }
+
   try {
     const url = `https://api.stlouisfed.org/fred/series/observations?series_id=PURANUSDM&sort_order=desc&limit=5&api_key=${FRED_API_KEY}&file_type=json`;
     const res = await fetch(url, { signal: AbortSignal.timeout(10000) });

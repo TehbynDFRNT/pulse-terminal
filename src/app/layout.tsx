@@ -1,5 +1,12 @@
 import type { Metadata } from "next";
 import { JetBrains_Mono, Inter } from "next/font/google";
+import "react-grid-layout/css/styles.css";
+import "react-resizable/css/styles.css";
+import { AppBottomSheet } from '@/components/AppBottomSheet';
+import { ChartDiagnosticsBootstrap } from '@/components/ChartDiagnosticsBootstrap';
+import { LocalhostRedirect } from '@/components/LocalhostRedirect';
+import { ThemeBootstrap } from '@/components/ThemeBootstrap';
+import { getThemeInitScript } from '@/lib/theme';
 import "./globals.css";
 
 const inter = Inter({
@@ -23,9 +30,14 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className="dark">
-      <body className={`${inter.variable} ${mono.variable} antialiased bg-[#0a0a0a] text-zinc-100`}>
+    <html lang="en" suppressHydrationWarning>
+      <body className={`${inter.variable} ${mono.variable} bg-background text-foreground antialiased`}>
+        <script dangerouslySetInnerHTML={{ __html: getThemeInitScript() }} />
+        <ThemeBootstrap />
+        <ChartDiagnosticsBootstrap />
+        <LocalhostRedirect />
         {children}
+        <AppBottomSheet />
       </body>
     </html>
   );

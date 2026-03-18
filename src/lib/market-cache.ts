@@ -27,5 +27,5 @@ export function getCacheAge(key: string): number | null {
   return Math.round((Date.now() - entry.updatedAt) / 1000);
 }
 
-/** FRED API key from OpenBB config */
-export const FRED_API_KEY = process.env.FRED_API_KEY || '4799d0af034bfca40db3bead15153163';
+/** FRED API key for app-owned FRED routes */
+export const FRED_API_KEY = process.env.FRED_API_KEY || '';

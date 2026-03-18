@@ -58,6 +58,13 @@ async function fetchMacro(): Promise<Record<string, { label: string; value: numb
 }
 
 export async function GET() {
+  if (!FRED_API_KEY) {
+    return NextResponse.json(
+      { error: 'FRED_API_KEY is not configured' },
+      { status: 503 },
+    );
+  }
+
   try {
     const cached = getCached<Record<string, unknown>>(CACHE_KEY, CACHE_TTL);
     if (cached) {
