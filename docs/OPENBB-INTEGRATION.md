@@ -4,6 +4,14 @@
 
 Date: 2026-03-17
 
+Current repo status, plainly:
+
+- the OpenBB path in this repo is usable today through a Python sidecar plus `CommandRunner`
+- it is not yet a true `from openbb import obb` integration surface
+- the Board-side dataset contracts are still opinionated Pulse shapers, not generated from OpenBB command metadata
+- that means the current integration is practical, but not yet highly portable across all OpenBB sources
+- the intended next step is to replace more of the hand-authored query/schema layer with proper OpenBB command introspection once a stable `obb` or equivalent metadata path is available
+
 OpenBB was updated into a repo-local runtime environment for validation:
 
 ```bash

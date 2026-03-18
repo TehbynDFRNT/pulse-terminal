@@ -96,10 +96,13 @@ npm run openbb:sidecar:status
 
 ## Additional Docs
 
-- [`ARCHITECTURE.md`](./ARCHITECTURE.md)
-- [`API-ROUTES.md`](./API-ROUTES.md)
-- [`OPENBB-INTEGRATION.md`](./OPENBB-INTEGRATION.md)
-- [`LIVELINE-PROPS.md`](./LIVELINE-PROPS.md)
+- [`docs/README.md`](./docs/README.md)
+- [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md)
+- [`docs/API-ROUTES.md`](./docs/API-ROUTES.md)
+- [`docs/OPENBB-INTEGRATION.md`](./docs/OPENBB-INTEGRATION.md)
+- [`docs/LIVELINE-PROPS.md`](./docs/LIVELINE-PROPS.md)
+- [`docs/IBKR-CAPABILITY-MAP.md`](./docs/IBKR-CAPABILITY-MAP.md)
+- [`docs/IBKR-SUBSCRIPTIONS.md`](./docs/IBKR-SUBSCRIPTIONS.md)
 
 ## Public Repo Hygiene
 
