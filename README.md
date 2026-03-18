@@ -33,11 +33,17 @@ This repo is IBKR-first.
 
 ## Setup
 
-1. Install dependencies:
+1. Run the local bootstrap:
 
 ```bash
-npm install
+./setup-local.sh
 ```
+
+This bootstrap handles the fiddly local prerequisites:
+- installs Java on macOS via Homebrew if needed
+- downloads the IBKR Client Portal Gateway into `./gateway`
+- installs npm dependencies
+- creates the repo-local OpenBB runtime in `.runtime/openbb-venv`
 
 2. Create your local env file from the template:
 
@@ -47,17 +53,27 @@ cp env.example .env.local
 
 3. Fill in the IBKR values in `.env.local`.
 
-4. Start the app:
+4. Optional: add the launcher to your PATH:
 
 ```bash
-npm run dev
+ln -sf "$(pwd)/pulse" "$HOME/bin/pulse"
 ```
 
-5. If you also want OpenBB running:
+5. Start the full stack:
 
 ```bash
-npm run dev:openbb
+./pulse dev
 ```
+
+You can also run:
+
+```bash
+./pulse status
+./pulse gateway
+./pulse down
+```
+
+The launcher opens the IBKR gateway auth page automatically. If the gateway is not already authenticated, complete the browser login flow once so the keepalive and live-feed daemons can bind to the brokerage session.
 
 6. Open:
 
@@ -82,6 +98,12 @@ npm run dev:openbb
 npm run build
 npm run start
 npx tsc --noEmit
+
+./setup-local.sh
+./install-java.sh
+./pulse dev
+./pulse status
+./pulse down
 
 npm run gateway:keepalive:status
 npm run ibkr:live-feed:status

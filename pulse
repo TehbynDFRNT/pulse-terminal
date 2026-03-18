@@ -1,0 +1,185 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+PULSE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+GATEWAY_DIR="$PULSE_ROOT/gateway"
+RUNTIME_DIR="$PULSE_ROOT/.runtime"
+GATEWAY_PORT="${PULSE_GATEWAY_PORT:-5050}"
+DEV_PORT="${PULSE_DEV_PORT:-5001}"
+APP_HOST="${PULSE_APP_HOST:-localhost}"
+
+mkdir -p "$RUNTIME_DIR"
+
+log() {
+  printf '%s\n' "$*"
+}
+
+port_pids() {
+  lsof -tiTCP:"$1" -sTCP:LISTEN 2>/dev/null || true
+}
+
+is_listening() {
+  [ -n "$(port_pids "$1")" ]
+}
+
+kill_port() {
+  local port="$1"
+  local pids
+  pids="$(port_pids "$port")"
+  if [ -z "$pids" ]; then
+    return 0
+  fi
+
+  log "Stopping listeners on :$port"
+  echo "$pids" | xargs kill 2>/dev/null || true
+  sleep 1
+
+  pids="$(port_pids "$port")"
+  if [ -n "$pids" ]; then
+    echo "$pids" | xargs kill -9 2>/dev/null || true
+    sleep 1
+  fi
+}
+
+wait_for_port() {
+  local port="$1"
+  local timeout="${2:-30}"
+
+  for _ in $(seq 1 "$timeout"); do
+    if is_listening "$port"; then
+      return 0
+    fi
+    sleep 1
+  done
+
+  return 1
+}
+
+open_auth_page() {
+  local url="https://localhost:${GATEWAY_PORT}"
+  if command -v open >/dev/null 2>&1; then
+    open "$url" >/dev/null 2>&1 || true
+  fi
+  log "Gateway auth page: $url"
+}
+
+require_gateway_install() {
+  if [ -x "$GATEWAY_DIR/bin/run.sh" ]; then
+    return 0
+  fi
+
+  log "Gateway bundle not found at $GATEWAY_DIR"
+  log "Run ./setup-local.sh first."
+  exit 1
+}
+
+ensure_gateway() {
+  require_gateway_install
+
+  if is_listening "$GATEWAY_PORT"; then
+    log "Gateway already listening on :$GATEWAY_PORT"
+    return 0
+  fi
+
+  log "Starting IBKR Client Portal Gateway..."
+  (
+    cd "$GATEWAY_DIR"
+    nohup ./bin/run.sh root/conf.yaml >> "$RUNTIME_DIR/pulse-gateway.log" 2>&1 &
+  )
+
+  if wait_for_port "$GATEWAY_PORT" 30; then
+    log "Gateway running on :$GATEWAY_PORT"
+    return 0
+  fi
+
+  log "ERROR: Gateway failed to start"
+  log "Check $RUNTIME_DIR/pulse-gateway.log"
+  exit 1
+}
+
+restart_gateway() {
+  kill_port "$GATEWAY_PORT"
+  ensure_gateway
+}
+
+start_stack() {
+  ensure_gateway
+  open_auth_page
+
+  kill_port "$DEV_PORT"
+
+  log "Starting Pulse Terminal stack..."
+  log "  App:     http://$APP_HOST:$DEV_PORT"
+  log "  Gateway: https://localhost:$GATEWAY_PORT"
+  log "  OpenBB:  http://127.0.0.1:5052"
+  log "  Note:    complete IBKR login in the opened browser tab if the gateway is not authenticated yet"
+  log ""
+
+  cd "$PULSE_ROOT"
+  exec npm run dev:openbb
+}
+
+stop_stack() {
+  log "Stopping OpenBB sidecar..."
+  (cd "$PULSE_ROOT" && npm run openbb:sidecar:stop >/dev/null 2>&1) || true
+
+  log "Stopping IBKR live-feed daemon..."
+  (cd "$PULSE_ROOT" && npm run ibkr:live-feed:stop >/dev/null 2>&1) || true
+
+  log "Stopping gateway keepalive..."
+  (cd "$PULSE_ROOT" && npm run gateway:keepalive:stop >/dev/null 2>&1) || true
+
+  kill_port "$DEV_PORT"
+  kill_port "$GATEWAY_PORT"
+}
+
+print_status() {
+  log "Ports"
+  log "  5001: $(port_pids "$DEV_PORT" | tr '\n' ' ' || true)"
+  log "  5050: $(port_pids "$GATEWAY_PORT" | tr '\n' ' ' || true)"
+  log ""
+  (
+    cd "$PULSE_ROOT"
+    npm run gateway:keepalive:status
+    npm run ibkr:live-feed:status
+    npm run openbb:sidecar:status
+  )
+}
+
+case "${1:-}" in
+  dev|up)
+    start_stack
+    ;;
+
+  gateway)
+    restart_gateway
+    open_auth_page
+    ;;
+
+  auth)
+    ensure_gateway
+    open_auth_page
+    ;;
+
+  down|kill)
+    stop_stack
+    ;;
+
+  status)
+    print_status
+    ;;
+
+  *)
+    cat <<EOF
+Usage: $(basename "$0") <command>
+
+Commands:
+  dev, up   Start gateway + auth page + OpenBB + keepalive + live-feed + Next app
+  gateway   Restart only the IBKR gateway and open the auth page
+  auth      Open the IBKR auth page
+  status    Show local port and daemon status
+  down      Stop app, daemons, sidecar, and gateway
+EOF
+    ;;
+esac
