@@ -33,8 +33,6 @@ yarn-error.log*
 .runtime/
 .claude/
 scripts/__pycache__/
-AGENTS.md
-CLAUDE.md
 
 # env files (can opt-in for committing if needed)
 .env*
